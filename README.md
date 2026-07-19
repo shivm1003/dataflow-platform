@@ -1,4 +1,4 @@
-# TeamCrawlers Dataflow Platform
+# Dataflow Platform
 
 An open-source control plane for scheduling, executing, monitoring, and scaling
 data-collection workloads.
