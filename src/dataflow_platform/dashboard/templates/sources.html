@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Sources{% endblock %}
+{% block content %}
+{% macro sort_href(col) -%}
+/sources?sort={{ col }}&order={% if sort == col and order == 'asc' %}desc{% else %}asc{% endif %}&per_page={{ per_page }}{% if client_filter %}&client={{ client_filter|urlencode }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}
+{%- endmacro %}
+{% macro sort_th(col, label) -%}
+<th class="col-{{ col }}">
+  <a class="th-sort{% if sort == col %} active {{ order }}{% endif %}" href="{{ sort_href(col) }}">
+    {{ label }}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </a>
+</th>
+{%- endmacro %}
+<header class="welcome">
+  <div class="welcome-left">
+    <div class="date-text" id="dateLabel">{{ date_label }}</div>
+    <div class="client-picker">
+      <label for="clientSelect">Client</label>
+      <select id="clientSelect" aria-label="Select client">
+        <option value="" {% if not client_filter %}selected{% endif %}>All Clients</option>
+        {% for c in clients %}
+        <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <a class="cta" href="/">
+      Dashboard
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
+  </div>
+  <div class="welcome-right">
+    <div class="greeting">
+      <strong id="greetingTitle">
+        {% if client_filter %}Hey {{ client_filter }} 👋{% else %}Hey, Need help? 👋{% endif %}
+      </strong>
+      <span>Source directory</span>
+    </div>
+  </div>
+</header>
+
+<section class="metrics metrics-sources" aria-label="Source metrics">
+  <article class="metric metric-active">
+    <div class="metric-head">
+      <h3>Active Jobs</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+      </div>
+    </div>
+    <div class="metric-value"><span>{{ metrics.active }}</span> <small>Active</small></div>
+    <div class="metric-sub">{{ metrics.active_pct }}% of total</div>
+    <div class="metric-sub">{{ metrics.total }} Total across {{ metrics.client_count }} client{% if metrics.client_count != 1 %}s{% endif %}</div>
+  </article>
+
+  <article class="metric">
+    <div class="metric-head">
+      <h3>Lifetime Scraped</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+      </div>
+    </div>
+    <div class="metric-value">{{ lifetime_fmt }}</div>
+    {% if metrics.scraped_week_delta_pct is not none %}
+    <div class="delta">{% if metrics.scraped_week_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.scraped_week_delta_pct|abs }}% vs last week</div>
+    {% endif %}
+    {% if metrics.scraped_month_delta_pct is not none %}
+    <div class="delta">{% if metrics.scraped_month_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.scraped_month_delta_pct|abs }}% vs last month</div>
+    {% endif %}
+  </article>
+
+  <article class="metric">
+    <div class="metric-head">
+      <h3>Success Rate</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/></svg>
+      </div>
+    </div>
+    <div class="metric-value">{% if metrics.success_rate is not none %}{{ metrics.success_rate }}%{% else %}—{% endif %}</div>
+    <div class="metric-sub">Average success rate (7d)</div>
+  </article>
+
+  <article class="metric">
+    <div class="metric-head">
+      <h3>Total Jobs</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </div>
+    </div>
+    <div class="metric-value">{{ total_jobs }}</div>
+    {% if metrics.urls_delta_pct is not none %}
+    <div class="delta">{% if metrics.urls_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.urls_delta_pct|abs }}% vs yesterday</div>
+    {% endif %}
+  </article>
+
+  <article class="metric status-card">
+    <div class="metric-head">
+      <h3>Alerts</h3>
+      <span class="badge">{% if metrics.alerts %}Attention{% else %}Healthy{% endif %}</span>
+    </div>
+    <div class="metric-value" style="font-size:20px">{{ metrics.alerts }}</div>
+    <div class="metric-sub">{% if metrics.alerts %}Needs rerun{% else %}All jobs are healthy{% endif %}</div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Source Directory <span class="count" id="sourceCount">{{ sources_total }} Sources</span></h2>
+    <div class="toolbar">
+      <form class="search" method="get" action="/sources" id="searchForm">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+        <input type="search" name="q" id="searchInput" placeholder="Search sources..." value="{{ q }}" />
+        {% if client_filter %}<input type="hidden" name="client" value="{{ client_filter }}" />{% endif %}
+        <input type="hidden" name="per_page" value="{{ per_page }}" />
+        <input type="hidden" name="sort" value="{{ sort }}" />
+        <input type="hidden" name="order" value="{{ order }}" />
+      </form>
+      <select class="chip" id="filterStatus" aria-label="Filter status">
+        <option value="all">All Status</option>
+        <option value="Completed">Completed</option>
+        <option value="Running">Running</option>
+        <option value="Needs attention">Needs attention</option>
+      </select>
+      <select class="chip" id="filterHealth" aria-label="Filter feed health">
+        <option value="all">All Feed Health</option>
+        <option value="green">Healthy</option>
+        <option value="yellow">Coverage gap</option>
+        <option value="red">Failed</option>
+      </select>
+      <label class="per-page-label" for="perPage">
+        Rows
+        <select class="chip" id="perPage" aria-label="Rows per page">
+          <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+          <option value="30" {% if per_page == 30 %}selected{% endif %}>30</option>
+          <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="sources-table">
+      <thead>
+        <tr>
+          {{ sort_th("client", "Client Name") }}
+          {{ sort_th("scraper", "Scraper Name") }}
+          {{ sort_th("source", "Source URL") }}
+          {{ sort_th("feed", "Feed URL") }}
+          {{ sort_th("type", "Feed Type") }}
+          {{ sort_th("jobs", "Total Jobs") }}
+          {{ sort_th("extracted", "Extracted Jobs") }}
+          {{ sort_th("health", "Feed Health") }}
+          {{ sort_th("status", "Status") }}
+          {{ sort_th("schedule", "Schedule") }}
+          {{ sort_th("created_at", "Created At") }}
+          {{ sort_th("updated", "Last Updated") }}
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        {% for s in sources %}
+        <tr data-status="{{ s.status }}" data-health="{{ s.health }}">
+          <td class="name col-client" title="{{ s.client }}">{{ s.client }}</td>
+          <td class="scraper col-scraper">
+            <a class="link" href="{{ s.detail_url }}" title="{{ s.scraper }}">{{ s.scraper }}</a>
+          </td>
+          <td class="col-source">
+            {% if s.source %}
+            <a class="link" href="{{ s.source }}" target="_blank" rel="noopener" title="{{ s.source }}">{{ s.source_host }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="col-feed">
+            {% if s.feed_url %}
+            <a class="link" href="{{ s.feed_url }}" target="_blank" rel="noopener" title="{{ s.feed_url }}">{{ s.feed }}</a>
+            {% else %}{{ s.feed }}{% endif %}
+          </td>
+          <td><span class="tag {{ s.type|lower }}">{{ s.type }}</span></td>
+          <td>
+            <div class="cell-stat">{{ s.jobs }}</div>
+            {% if s.jobs_delta_pct is not none %}
+            <div class="delta cell-delta">{% if s.jobs_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ s.jobs_delta_pct|abs }}%</div>
+            {% endif %}
+          </td>
+          <td>
+            <div class="cell-stat">{{ s.extracted }}</div>
+            {% if s.extracted_delta_pct is not none %}
+            <div class="delta cell-delta">{% if s.extracted_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ s.extracted_delta_pct|abs }}%</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if s.health %}
+            <span class="health-dot {{ s.health }}" title="{{ s.health }}"></span>
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td><span class="status {{ s.status|lower|replace(' ', '-') }}">{{ s.status }}</span></td>
+          <td class="muted">{{ s.schedule }}</td>
+          <td class="muted">{{ s.created_at }}</td>
+          <td class="muted">{{ s.updated }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="muted">No scrapers match this filter.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pager">
+    <div class="pager-meta">
+      Showing {{ sources|length }} of {{ sources_total }}
+      · Page {{ page }} / {{ total_pages }}
+    </div>
+    <div class="pager-nav">
+      {% if page > 1 %}
+      <a class="pager-btn" href="/sources?page={{ page - 1 }}&per_page={{ per_page }}&sort={{ sort }}&order={{ order }}{% if client_filter %}&client={{ client_filter|urlencode }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">← Prev</a>
+      {% else %}
+      <span class="pager-btn disabled">← Prev</span>
+      {% endif %}
+      {% if page < total_pages %}
+      <a class="pager-btn" href="/sources?page={{ page + 1 }}&per_page={{ per_page }}&sort={{ sort }}&order={{ order }}{% if client_filter %}&client={{ client_filter|urlencode }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">Next →</a>
+      {% else %}
+      <span class="pager-btn disabled">Next →</span>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const clientSelect = document.getElementById("clientSelect");
+    clientSelect.addEventListener("change", () => {
+      const v = clientSelect.value;
+      const url = new URL(window.location.href);
+      if (v) url.searchParams.set("client", v);
+      else url.searchParams.delete("client");
+      url.searchParams.delete("page");
+      window.location.href = url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "");
+    });
+
+    const perPage = document.getElementById("perPage");
+    perPage.addEventListener("change", () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("per_page", perPage.value);
+      url.searchParams.set("page", "1");
+      window.location.href = url.pathname + "?" + url.searchParams.toString();
+    });
+
+    function applyFilters() {
+      const statusVal = document.getElementById("filterStatus").value;
+      const healthVal = document.getElementById("filterHealth").value;
+      document.querySelectorAll("#tableBody tr[data-status]").forEach((tr) => {
+        const statusOk = statusVal === "all" || tr.dataset.status === statusVal;
+        const healthOk = healthVal === "all" || tr.dataset.health === healthVal;
+        tr.style.display = statusOk && healthOk ? "" : "none";
+      });
+    }
+    document.getElementById("filterStatus").addEventListener("change", applyFilters);
+    document.getElementById("filterHealth").addEventListener("change", applyFilters);
+  })();
+</script>
+{% endblock %}

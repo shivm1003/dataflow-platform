@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<header class="welcome">
+  <div class="welcome-left">
+    <div class="date-text" id="dateLabel">{{ date_label }}</div>
+    <div class="client-picker">
+      <label for="clientSelect">Client</label>
+      <select id="clientSelect" aria-label="Select client">
+        <option value="" {% if not client_filter %}selected{% endif %}>All Clients</option>
+        {% for c in clients %}
+        <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <a class="cta" href="/sources{% if client_filter %}?client={{ client_filter|urlencode }}{% endif %}">
+      Show all jobs
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
+  </div>
+  <div class="welcome-right">
+    <div class="greeting">
+      <strong id="greetingTitle">
+        {% if client_filter %}Hey {{ client_filter }} 👋{% else %}Hey, Need help? 👋{% endif %}
+      </strong>
+      <span>Fleet overview for your scrapers</span>
+    </div>
+  </div>
+</header>
+
+<section class="metrics" aria-label="Fleet metrics">
+  <article class="metric metric-active">
+    <div class="metric-head">
+      <h3>Active Jobs</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+      </div>
+    </div>
+    <div class="metric-value"><span>{{ metrics.active }}</span> <small>Active</small></div>
+    <div class="metric-sub">{{ metrics.active_pct }}% of total</div>
+    <div class="metric-sub">{{ metrics.total }} Total across {{ metrics.client_count }} client{% if metrics.client_count != 1 %}s{% endif %}</div>
+  </article>
+
+  <article class="metric">
+    <div class="metric-head">
+      <h3>Success Rate</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/></svg>
+      </div>
+    </div>
+    <div class="metric-value">{% if metrics.success_rate is not none %}{{ metrics.success_rate }}%{% else %}—{% endif %}</div>
+    <div class="metric-sub">Last 7 days</div>
+  </article>
+
+  <article class="metric">
+    <div class="metric-head">
+      <h3>Items Scraped Today</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+      </div>
+    </div>
+    <div class="metric-value">{{ metrics.scraped_today_fmt }}</div>
+    {% if metrics.urls_delta_pct is not none %}
+    <div class="delta">{% if metrics.urls_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.urls_delta_pct|abs }}% vs yesterday</div>
+    {% else %}
+    <div class="metric-sub">vs yesterday —</div>
+    {% endif %}
+  </article>
+
+  <article class="metric">
+    <div class="metric-head">
+      <h3>Throughput</h3>
+      <div class="metric-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/><path d="M4 19h16" opacity=".4"/></svg>
+      </div>
+    </div>
+    <div class="metric-value" style="font-size:22px">
+      {% if metrics.throughput_per_min is not none %}{{ metrics.throughput_per_min }} <small>items/min</small>{% else %}—{% endif %}
+    </div>
+    <div class="metric-sub">From successful runs today</div>
+  </article>
+
+  <article class="metric status-card">
+    <div class="metric-head">
+      <h3>Alerts</h3>
+      <span class="badge">{% if metrics.alerts %}Attention{% else %}Healthy{% endif %}</span>
+    </div>
+    <div class="metric-value" style="font-size:20px">{{ metrics.alerts }}</div>
+    <div class="metric-sub">{% if metrics.alerts %}Needs rerun{% else %}All jobs are healthy{% endif %}</div>
+  </article>
+</section>
+
+<section class="mid">
+  <article class="card">
+    <div class="card-head">
+      <h2>Jobs Overview</h2>
+      <div class="selects">
+        <select class="chip" id="jobsMonth" aria-label="Month"></select>
+        <select class="chip" id="jobsYear" aria-label="Year"></select>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-tip" id="chartTip">—</div>
+      <svg viewBox="0 0 400 180" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="areaFade" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#e8926f" stop-opacity="0.28"/>
+            <stop offset="100%" stop-color="#e8926f" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <line x1="0" y1="40" x2="400" y2="40" stroke="#eee" stroke-width="1"/>
+        <line x1="0" y1="90" x2="400" y2="90" stroke="#eee" stroke-width="1"/>
+        <line x1="0" y1="140" x2="400" y2="140" stroke="#eee" stroke-width="1"/>
+        <line id="tipLine" x1="200" y1="0" x2="200" y2="180" stroke="#e8926f" stroke-width="1" stroke-opacity="0.35"/>
+        <path id="areaPath" fill="url(#areaFade)" d=""/>
+        <path id="linePath" fill="none" stroke="#e8926f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d=""/>
+        <circle id="tipDot" cx="200" cy="70" r="4.5" fill="#e8926f" stroke="#fff" stroke-width="2"/>
+      </svg>
+    </div>
+    <div class="period-stats" id="periodStats" data-mode="{{ series.period.mode }}">
+      {% if series.period.mode == 'current' %}
+      <div><label>Today</label><strong id="statToday">{{ series.period.today_fmt }}</strong></div>
+      <div><label>This Week</label><strong id="statWeek">{{ series.period.week_fmt }}</strong></div>
+      <div><label>This Month</label><strong id="statMonth">{{ series.period.month_fmt }}</strong></div>
+      <div><label>This Year</label><strong id="statYear">{{ series.period.year_fmt }}</strong></div>
+      {% else %}
+      <div class="period-year-only"><label>Year {{ series.year }}</label><strong id="statYear">{{ series.period.year_fmt }}</strong></div>
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="card" id="job-center">
+    <div class="card-head"><h2>Job Center</h2></div>
+    <div class="tabs" id="jobTabs">
+      <button class="tab active" type="button" data-filter="completed">Completed Today <span class="count">({{ job_center.counts.completed }})</span></button>
+      <button class="tab" type="button" data-filter="running">Running <span class="count">({{ job_center.counts.running }})</span></button>
+      <button class="tab" type="button" data-filter="scheduled">Scheduled <span class="count">({{ job_center.counts.scheduled }})</span></button>
+      <button class="tab" type="button" data-filter="attention">Needs Attention <span class="count">({{ job_center.counts.attention }})</span></button>
+    </div>
+    <div class="job-center-body">
+      <div style="overflow-x:auto">
+        <table class="job-table">
+          <thead>
+            <tr>
+              <th>Job Name</th>
+              <th>Status</th>
+              <th>Progress / Info</th>
+              <th>Last Update</th>
+            </tr>
+          </thead>
+          <tbody id="jobTableBody"></tbody>
+        </table>
+      </div>
+      <div class="job-center-empty" id="jobCenterEmpty" hidden></div>
+    </div>
+    <a class="see-all-jobs" href="/sources{% if client_filter %}?client={{ client_filter|urlencode }}{% endif %}">See all jobs →</a>
+  </article>
+
+  <article class="card top-card">
+    <div class="card-head">
+      <h2>Top Performing Jobs</h2>
+      <select class="chip" id="topSort" aria-label="Sort">
+        <option value="count">By Job Count</option>
+        <option value="success">By Success %</option>
+      </select>
+    </div>
+    <div class="top-list" id="topList"></div>
+  </article>
+</section>
+
+<section class="bottom">
+  <article class="card quality-card">
+    <div class="card-head">
+      <h2>Data Quality</h2>
+      <span class="badge{% if not quality.healthy %} badge-warn{% endif %}">
+        {% if quality.healthy %}Healthy{% else %}Attention{% endif %}
+      </span>
+    </div>
+    <div class="quality">
+      <div class="quality-score">
+        <div
+          class="donut"
+          id="qualityDonut"
+          aria-hidden="true"
+          {% if quality.donut_css %}style="background: {{ quality.donut_css }}"{% endif %}
+        >
+          <span id="qualityCenter" class="{% if quality.healthy %}ok{% endif %}">
+            {% if quality.score_label %}{{ quality.score_label }}%{% else %}—{% endif %}
+            <small>Quality Score</small>
+          </span>
+        </div>
+      </div>
+      <div class="quality-metrics">
+        <div class="qm-row">
+          <div class="qm-icon qm-coverage" aria-hidden="true"></div>
+          <div class="qm-body">
+            <div class="qm-top">
+              <span>Completeness (Coverage)</span>
+              <strong class="ok">{% if quality.completeness_label %}{{ quality.completeness_label }}%{% else %}—{% endif %}</strong>
+            </div>
+            <div class="qm-sub">
+              <span>{% if quality.jobs_total %}{{ "{:,}".format(quality.scraped_total) }} / {{ "{:,}".format(quality.jobs_total) }}{% else %}—{% endif %}</span>
+              <em>Expected vs Scraped</em>
+            </div>
+          </div>
+        </div>
+        <div class="qm-row">
+          <div class="qm-icon qm-valid" aria-hidden="true"></div>
+          <div class="qm-body">
+            <div class="qm-top">
+              <span>Data Validation</span>
+              <strong class="ok">{% if quality.validation_label %}{{ quality.validation_label }}%{% else %}—{% endif %}</strong>
+            </div>
+            <div class="qm-sub">
+              <em>All Records passed validation rules</em>
+            </div>
+          </div>
+        </div>
+        <div class="qm-row">
+          <div class="qm-icon qm-fresh" aria-hidden="true"></div>
+          <div class="qm-body">
+            <div class="qm-top">
+              <span>Freshness</span>
+              <strong class="{% if quality.freshness_status == 'Up to date' %}ok{% endif %}">{{ quality.freshness_status }}</strong>
+            </div>
+            <div class="qm-sub">
+              <span>{{ quality.freshness_detail }}</span>
+              <em>Last updated {{ quality.last_check }}</em>
+            </div>
+          </div>
+        </div>
+        <div class="quality-summary-line">
+          <span class="quality-summary{% if quality.healthy %} is-ok{% endif %}">{{ quality.summary }}</span>
+          <span class="quality-summary-detail{% if quality.healthy %} is-ok{% endif %}">{{ quality.summary_detail }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="quality-bar">
+      <div class="qb-item">
+        <strong>{{ "{:,}".format(quality.scraped_total) }}</strong>
+        <span>Records checked</span>
+      </div>
+      <div class="qb-item">
+        <strong>{{ quality.issues_detected }}</strong>
+        <span>Issues detected</span>
+      </div>
+    </div>
+    <div class="quality-trust">
+      <div class="trust-tile">
+        <span class="trust-label">Feeds Checked</span>
+        <strong>{{ quality.feeds_healthy }} / {{ quality.scraper_total }}</strong>
+        <em>{% if quality.stale_or_attention %}{{ quality.stale_or_attention }} need attention{% else %}All feeds healthy{% endif %}</em>
+      </div>
+      <div class="trust-tile">
+        <span class="trust-label">Attention</span>
+        <strong>{{ quality.stale_or_attention }}</strong>
+        <em>{% if quality.stale_or_attention %}Needs review{% else %}None{% endif %}</em>
+      </div>
+      <div class="trust-tile">
+        <span class="trust-label">Feeds Published</span>
+        <strong>{{ quality.with_feed }} / {{ quality.scraper_total }}</strong>
+        <em>{% if quality.published_pct is not none %}{{ quality.published_pct }}% published{% else %}—{% endif %}</em>
+      </div>
+      <div class="trust-tile">
+        <span class="trust-label">Last Check</span>
+        <strong>{{ quality.last_check }}</strong>
+        <em>{{ quality.next_check }}</em>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-head"><h2>Recent Activity</h2></div>
+    <div class="activity-list" id="activityList"></div>
+  </article>
+
+  <article class="card">
+    <div class="card-head"><h2>Insights</h2></div>
+    <div class="insights">
+      {% for tip in insights %}
+      <div class="insight"><div class="ico {{ tip.cls }}">{{ tip.icon }}</div><div>{{ tip.text }}</div></div>
+      {% else %}
+      <div class="insight"><div class="ico info">◆</div><div>No insights yet — run scrapers to populate history.</div></div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.TC_DASHBOARD = {{ dashboard_json | safe }};
+</script>
+<script src="/static/dashboard.js"></script>
+{% endblock %}

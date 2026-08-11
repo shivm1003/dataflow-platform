@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}{{ scraper.display_label }}{% endblock %}
+{% block content %}
+<header class="detail-hero">
+  <a class="detail-back" href="/sources">← Back to Scrapers</a>
+  <div class="detail-hero-main">
+    <div class="detail-hero-title">
+      <span class="detail-globe" aria-hidden="true"></span>
+      <div>
+        <div class="detail-title-row">
+          <h1>{{ scraper.display_label }}</h1>
+          <span class="badge{% if not scraper.healthy %} badge-warn{% endif %}">
+            {% if scraper.healthy %}Healthy{% else %}Attention{% endif %}
+          </span>
+        </div>
+        <p class="detail-sub">{{ scraper.client_name }} · {{ scraper.domain_name }}</p>
+        <p class="detail-meta">Last successful run: {{ scraper.last_scraped }} ({{ scraper.last_scraped_ago }})</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="detail-kpis">
+  <article class="card detail-kpi">
+    <div class="detail-kpi-icon kpi-scraped" aria-hidden="true"></div>
+    <div>
+      <span class="detail-kpi-label">Scraped (Last Run)</span>
+      <strong class="detail-kpi-value">{{ scraper.scraped_count_fmt }}</strong>
+      {% if scraper.scraped_delta_pct is not none %}
+      <span class="delta {% if scraper.scraped_delta_pct > 0 %}up{% else %}down{% endif %}">
+        {% if scraper.scraped_delta_pct > 0 %}↑{% else %}↓{% endif %}
+        {% if scraper.scraped_delta_pct < 0 %}{{ -scraper.scraped_delta_pct }}{% else %}{{ scraper.scraped_delta_pct }}{% endif %}%
+      </span>
+      <span class="detail-kpi-sub">vs previous run{% if scraper.prev_scraped is not none %} ({{ scraper.prev_scraped }}){% endif %}</span>
+      {% else %}
+      <span class="detail-kpi-sub">Last successful extract</span>
+      {% endif %}
+    </div>
+  </article>
+  <article class="card detail-kpi">
+    <div class="detail-kpi-icon kpi-jobs" aria-hidden="true"></div>
+    <div>
+      <span class="detail-kpi-label">Jobs (Last Run)</span>
+      <strong class="detail-kpi-value">{{ scraper.scraped_count_fmt }} / {{ scraper.jobs_count_fmt }}</strong>
+      <span class="detail-kpi-sub">
+        {% if scraper.jobs_pct_label %}{{ scraper.jobs_pct_label }}% completed{% else %}—{% endif %}
+      </span>
+    </div>
+  </article>
+  <article class="card detail-kpi">
+    <div class="detail-kpi-icon kpi-qa" aria-hidden="true"></div>
+    <div>
+      <span class="detail-kpi-label">QA Status</span>
+      <strong class="detail-kpi-value {% if qa.passed %}ok{% endif %}">
+        {% if qa.passed %}Passed{% else %}Failed{% endif %}
+      </strong>
+      <span class="detail-kpi-sub">{% if qa.passed %}No issues detected{% else %}Needs review{% endif %}</span>
+    </div>
+  </article>
+  <article class="card detail-kpi">
+    <div class="detail-kpi-icon kpi-runtime" aria-hidden="true"></div>
+    <div>
+      <span class="detail-kpi-label">Runtime (Last Run)</span>
+      <strong class="detail-kpi-value">{{ scraper.total_runtime }}</strong>
+      <span class="detail-kpi-sub">{{ scraper.last_scraped }}</span>
+    </div>
+  </article>
+</section>
+
+<section class="detail-main">
+  <div class="detail-top">
+    <article class="card detail-card detail-card-details">
+      <div class="card-head"><h2>Scraper Details</h2></div>
+      <div class="detail-block">
+        <div class="detail-section-label">Identity</div>
+        <dl class="kv">
+          <dt>Display name</dt><dd>{{ scraper.display_label }}</dd>
+          <dt>Client</dt><dd>{{ scraper.client_name }}</dd>
+          <dt>Domain</dt><dd>{{ scraper.domain_name }}</dd>
+          <dt>Status</dt><dd><span class="pill-dot {% if scraper.status == 'active' %}ok{% endif %}">{{ scraper.status|title }}</span></dd>
+          <dt>Source status</dt><dd>{{ scraper.source_status }}</dd>
+        </dl>
+      </div>
+      <div class="detail-block detail-block-grow">
+        <div class="detail-section-label">Configuration</div>
+        <dl class="kv">
+          <dt>Feed delivery</dt><dd>{{ scraper.feed_delivery }}</dd>
+          <dt>Filter</dt><dd>{{ scraper.filter_flag }}</dd>
+          <dt>Schedule</dt><dd>{{ scraper.schedule_label }}</dd>
+          <dt>Start URL</dt>
+          <dd class="kv-url">
+            {% if scraper.start_url %}
+            <a class="link" href="{{ scraper.start_url }}" target="_blank" rel="noopener" title="{{ scraper.start_url }}">{{ scraper.start_url }}</a>
+            {% else %}—{% endif %}
+          </dd>
+        </dl>
+        {% if scraper.feed_url %}
+        <p class="detail-feed-link">
+          <a class="detail-feed-btn" href="{{ scraper.feed_url }}" target="_blank" rel="noopener">Open feed →</a>
+        </p>
+        {% endif %}
+      </div>
+      {% if scraper.scraped_columns %}
+      <div class="detail-block detail-block-grow">
+        <div class="detail-section-label">Data Fields (Feed Columns)</div>
+        <div class="chip-row">
+          {% for col in scraper.scraped_columns %}<span>{{ col }}</span>{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </article>
+
+    <div class="detail-col-right">
+      <article class="card detail-card">
+        <div class="card-head"><h2>QA Report (Last Run)</h2></div>
+        <div class="qa-report-head">
+          <div class="qa-report-status {% if qa.passed %}ok{% endif %}">
+            <span class="qa-check" aria-hidden="true"></span>
+            <div>
+              <strong>{% if qa.passed %}Passed{% else %}Failed{% endif %}</strong>
+              <span>{% if qa.passed %}No issues detected{% else %}Needs review{% endif %}</span>
+            </div>
+          </div>
+        </div>
+        <div class="qa-metrics">
+          <div class="qa-metric">
+            <span>Jobs coverage</span>
+            <strong>{{ qa.scraped }} / {{ qa.jobs }}</strong>
+            <em class="c-blue">{% if qa.jobs_pct is not none %}{{ qa.jobs_pct|int if qa.jobs_pct == (qa.jobs_pct|int) else qa.jobs_pct }}%{% else %}—{% endif %}</em>
+          </div>
+          <div class="qa-metric">
+            <span>Scraped coverage</span>
+            <strong>{{ qa.scraped }} / {{ qa.jobs if qa.jobs else qa.scraped }}</strong>
+            <em class="c-green">{% if qa.scraped_pct is not none %}{{ qa.scraped_pct|int }}%{% else %}—{% endif %}</em>
+          </div>
+          <div class="qa-metric">
+            <span>Skipped jobs</span>
+            <strong>{{ qa.skipped }}</strong>
+            <em class="c-coral">{{ qa.skipped_pct|int }}%</em>
+          </div>
+          <div class="qa-metric">
+            <span>Duplicate records</span>
+            <strong>{{ qa.duplicates }}</strong>
+            <em class="c-blue">{{ qa.dupe_pct|int }}%</em>
+          </div>
+          <div class="qa-metric">
+            <span>Data completeness</span>
+            <strong>{% if qa.complete_pct is not none %}{{ qa.complete_pct|int if qa.complete_pct == (qa.complete_pct|int) else qa.complete_pct }}%{% else %}—{% endif %}</strong>
+            <em class="c-green">{{ qa.completeness_label }}</em>
+          </div>
+        </div>
+        <div class="qa-banner {% if qa.passed %}ok{% endif %}">{{ qa.banner }}</div>
+      </article>
+
+      <article class="card detail-card">
+        <div class="card-head">
+          <h2>Scraped Volume</h2>
+          <div class="volume-tabs" id="volumeTabs" role="tablist">
+            <button type="button" class="vol-tab active" data-range="7d">7D</button>
+            <button type="button" class="vol-tab" data-range="30d">30D</button>
+            <button type="button" class="vol-tab" data-range="90d">90D</button>
+            <button type="button" class="vol-tab" data-range="1y">1Y</button>
+            <button type="button" class="vol-tab" data-range="all">All</button>
+          </div>
+        </div>
+        <div class="volume-stats">
+          <div>
+            <strong id="volPeriodTotal">{{ volume_series.ranges['7d'].period_total_fmt }}</strong>
+            <span>items this period</span>
+            <em id="volDelta" class="delta {% if volume_series.ranges['7d'].delta_pct and volume_series.ranges['7d'].delta_pct > 0 %}up{% elif volume_series.ranges['7d'].delta_pct %}down{% endif %}">
+              {% set d7 = volume_series.ranges['7d'].delta_pct %}
+              {% if d7 is not none %}
+              {% if d7 > 0 %}↑{% else %}↓{% endif %}
+              {% if d7 < 0 %}{{ -d7 }}{% else %}{{ d7 }}{% endif %}%
+              {% endif %}
+            </em>
+          </div>
+          <div>
+            <strong>{{ "{:,}".format(volume_series.lifetime) }}</strong>
+            <span>Lifetime · {{ volume_series.run_count }} runs</span>
+          </div>
+        </div>
+        <div class="detail-chart-wrap">
+          <svg id="detailVolumeSvg" viewBox="0 0 400 140" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="detailAreaFade" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#6bbf8a" stop-opacity="0.28"/>
+                <stop offset="100%" stop-color="#6bbf8a" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path id="detailAreaPath" fill="url(#detailAreaFade)" d=""/>
+            <path id="detailLinePath" fill="none" stroke="#6bbf8a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d=""/>
+          </svg>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <article class="card detail-card detail-runs-full">
+    <div class="card-head"><h2>Recent Runs</h2></div>
+    {% if runs %}
+    <div class="runs-scroll">
+      <table class="runs-table">
+        <thead>
+          <tr>
+            <th>Finished (UTC)</th>
+            <th>Status</th>
+            <th>Jobs</th>
+            <th>Scraped</th>
+            <th>Skipped</th>
+            <th>QA</th>
+            <th>Runtime</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in runs %}
+          <tr>
+            <td>{{ r.finished_at }}</td>
+            <td><span class="status {% if r.success %}finished{% else %}needs-attention{% endif %}">{{ r.status }}</span></td>
+            <td>{{ r.jobs_count if r.jobs_count is not none else "—" }}</td>
+            <td>{{ r.scraped_count }}</td>
+            <td>{{ r.skipped_jobs }}</td>
+            <td><span class="status {% if r.qa_ok %}finished{% else %}needs-attention{% endif %}">{{ r.qa }}</span></td>
+            <td>{{ r.runtime }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">No run history yet.</p>
+    {% endif %}
+  </article>
+</section>
+
+<footer class="detail-footer">
+  <div class="detail-footer-left">
+    <span>Auto run: <strong>{% if scraper.auto_run %}Enabled{% else %}Off{% endif %}</strong></span>
+    <span class="dot-sep"></span>
+    <span>Next run: <strong>{{ scraper.next_run }}</strong></span>
+  </div>
+</footer>
+
+<script type="application/json" id="detail-data">{{ detail_json | safe }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/dashboard.js"></script>
+{% endblock %}
