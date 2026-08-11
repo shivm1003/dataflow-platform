@@ -205,6 +205,25 @@ GET  /schedules
 The API and scheduler will use the same internal run service so manual and
 scheduled runs have identical execution semantics.
 
+## Operator dashboard
+
+A server-rendered dashboard is available from the FastAPI process:
+
+```bash
+docker compose up -d
+alembic upgrade head
+dataflow-seed-scrapers
+dataflow-api
+```
+
+Then open:
+
+- `http://127.0.0.1:8000/` — scraper registry list (search + client/status/rerun filters)
+- `http://127.0.0.1:8000/dashboard/scrapers/{spider_name}` — full scraper detail
+- `http://127.0.0.1:8000/docs` — OpenAPI for the JSON control-plane API
+
+JSON routes under `/scrapers` are unchanged for run reporting.
+
 ## Delivery roadmap
 
 ### Phase 0 — Foundation
