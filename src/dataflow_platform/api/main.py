@@ -8,6 +8,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from dataflow_platform.api.routes import router as api_router
 from dataflow_platform.config import get_settings
@@ -17,10 +18,19 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "static"
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(
         title="Dataflow Platform",
         description="Scraper registry, run reporting, and QA control plane",
         version="0.1.0",
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.secret_key,
+        session_cookie="dataflow_session",
+        max_age=settings.session_max_age_seconds,
+        same_site="lax",
+        https_only=settings.session_https_only,
     )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(dashboard_router)

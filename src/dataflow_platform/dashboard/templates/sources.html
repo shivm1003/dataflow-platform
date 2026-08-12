@@ -17,12 +17,18 @@
     <div class="date-text" id="dateLabel">{{ date_label }}</div>
     <div class="client-picker">
       <label for="clientSelect">Client</label>
+      {% if lock_client_picker %}
+      <select id="clientSelect" aria-label="Client" disabled>
+        <option value="{{ client_filter }}" selected>{{ client_filter }}</option>
+      </select>
+      {% else %}
       <select id="clientSelect" aria-label="Select client">
         <option value="" {% if not client_filter %}selected{% endif %}>All Clients</option>
         {% for c in clients %}
         <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
         {% endfor %}
       </select>
+      {% endif %}
     </div>
     <a class="cta" href="/">
       Dashboard

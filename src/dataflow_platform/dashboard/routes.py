@@ -3,16 +3,31 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from dataflow_platform.db import SessionLocal
+from dataflow_platform.auth import (
+    LOGIN_ERROR,
+    clear_login_failures,
+    clear_session,
+    current_user,
+    effective_client_name,
+    get_db,
+    get_user_by_username,
+    login_client_ip,
+    login_rate_limited,
+    record_login_failure,
+    set_session_user,
+    user_can_access_scraper,
+    verify_password,
+)
+from dataflow_platform.models import User, UserRole
 from dataflow_platform.services import (
     ScraperServiceError,
     activity_feed,
@@ -42,22 +57,43 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-def _render(request: Request, name: str, **context: object) -> HTMLResponse:
+def _safe_next(raw: str | None) -> str:
+    path = (raw or "").strip() or "/"
+    if not path.startswith("/") or path.startswith("//"):
+        return "/"
+    return path
+
+
+def _login_redirect(request: Request) -> RedirectResponse:
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    return RedirectResponse(url=f"/login?next={quote(next_path, safe='/?=&')}", status_code=303)
+
+
+def _render(
+    request: Request,
+    name: str,
+    *,
+    user: User | None = None,
+    bare: bool = False,
+    status_code: int = 200,
+    **context: object,
+) -> HTMLResponse:
     path = request.url.path
     if path.startswith("/dashboard/scrapers") or path.startswith("/sources"):
         nav = "scrapers"
     else:
         nav = "dashboard"
     context.setdefault("nav", nav)
-    return templates.TemplateResponse(request=request, name=name, context=context)
-
-
-def get_db() -> Generator[Session, None, None]:
-    session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
+    context.setdefault("bare", bare)
+    context.setdefault("current_user", user)
+    return templates.TemplateResponse(
+        request=request,
+        name=name,
+        context=context,
+        status_code=status_code,
+    )
 
 
 def _date_label() -> str:
@@ -151,6 +187,77 @@ def _build_insights(session: Session, client_name: str | None) -> list[dict[str,
     return tips[:4]
 
 
+def _picker_clients(session: Session, user: User) -> list[str]:
+    if user.role == UserRole.client and user.client_name:
+        return [user.client_name]
+    return distinct_clients(session)
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(
+    request: Request,
+    next: str | None = Query(default=None),
+    session: Session = Depends(get_db),
+) -> Response:
+    user = current_user(request, session)
+    if user is not None:
+        return RedirectResponse(url=_safe_next(next), status_code=303)
+    return _render(
+        request,
+        "login.html",
+        bare=True,
+        error=None,
+        next=_safe_next(next),
+    )
+
+
+@router.post("/login", response_class=HTMLResponse)
+def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str | None = Form(default=None),
+    session: Session = Depends(get_db),
+) -> Response:
+    ip = login_client_ip(request)
+    next_path = _safe_next(next)
+    if login_rate_limited(ip):
+        return _render(
+            request,
+            "login.html",
+            bare=True,
+            error="Too many failed attempts. Try again later.",
+            next=next_path,
+            status_code=429,
+        )
+
+    user = get_user_by_username(session, username.strip())
+    if (
+        user is None
+        or not user.is_active
+        or not verify_password(password, user.password_hash)
+    ):
+        record_login_failure(ip)
+        return _render(
+            request,
+            "login.html",
+            bare=True,
+            error=LOGIN_ERROR,
+            next=next_path,
+            status_code=401,
+        )
+
+    clear_login_failures(ip)
+    set_session_user(request, user)
+    return RedirectResponse(url=next_path, status_code=303)
+
+
+@router.post("/logout")
+def logout(request: Request) -> RedirectResponse:
+    clear_session(request)
+    return RedirectResponse(url="/login", status_code=303)
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard_home(
     request: Request,
@@ -158,8 +265,12 @@ def dashboard_home(
     year: int | None = None,
     month: int | None = None,
     session: Session = Depends(get_db),
-) -> HTMLResponse:
-    client_filter = (client or "").strip() or None
+) -> Response:
+    user = current_user(request, session)
+    if user is None:
+        return _login_redirect(request)
+
+    client_filter = effective_client_name(user, client)
     now = datetime.now(timezone.utc)
     y = year or now.year
     m = month or now.month
@@ -170,7 +281,7 @@ def dashboard_home(
     tops = top_jobs(session, client_name=client_filter, limit=5)
     schedule = schedule_summary(session, client_name=client_filter)
     quality = coverage_quality(session, client_name=client_filter)
-    clients = distinct_clients(session)
+    clients = _picker_clients(session, user)
     payload = {
         "series": series,
         "job_center": jc,
@@ -181,9 +292,11 @@ def dashboard_home(
     return _render(
         request,
         "index.html",
+        user=user,
         date_label=_date_label(),
         clients=clients,
         client_filter=client_filter or "",
+        lock_client_picker=user.role == UserRole.client,
         metrics=metrics,
         series=series,
         job_center=jc,
@@ -204,8 +317,12 @@ def dashboard_sources(
     sort: str = Query(default="client"),
     order: str = Query(default="asc"),
     session: Session = Depends(get_db),
-) -> HTMLResponse:
-    client_filter = (client or "").strip() or None
+) -> Response:
+    user = current_user(request, session)
+    if user is None:
+        return _login_redirect(request)
+
+    client_filter = effective_client_name(user, client)
     query = (q or "").strip()
     if per_page not in {20, 30, 50}:
         per_page = 30
@@ -231,9 +348,11 @@ def dashboard_sources(
     return _render(
         request,
         "sources.html",
+        user=user,
         date_label=_date_label(),
-        clients=distinct_clients(session),
+        clients=_picker_clients(session, user),
         client_filter=client_filter or "",
+        lock_client_picker=user.role == UserRole.client,
         q=query,
         sources=page_rows,
         sources_total=total_sources,
@@ -253,11 +372,18 @@ def dashboard_scraper_detail(
     request: Request,
     spider_name: str,
     session: Session = Depends(get_db),
-) -> HTMLResponse:
+) -> Response:
+    user = current_user(request, session)
+    if user is None:
+        return _login_redirect(request)
+
     try:
         scraper = get_scraper_by_name(session, spider_name)
     except ScraperServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    if not user_can_access_scraper(user, scraper.client_name):
+        raise HTTPException(status_code=404, detail="Scraper not found")
 
     columns = list(scraper.scraped_columns or [])
     healthy = not scraper.needs_rerun and scraper.qa_passed is not False
@@ -267,7 +393,6 @@ def dashboard_scraper_detail(
     delta = spider_previous_run_delta(session, spider_name=spider_name)
     schedule_parts = []
     if scraper.schedule_day:
-        # Compact Mon,Tue,Wed,Thu,Fri → Mon–Fri when consecutive weekdays
         schedule_parts.append(_compact_schedule_days(scraper.schedule_day))
     if scraper.schedule_time:
         schedule_parts.append(scraper.schedule_time.strftime("%H:%M"))
@@ -347,6 +472,7 @@ def dashboard_scraper_detail(
     return _render(
         request,
         "detail.html",
+        user=user,
         scraper=view,
         runs=runs[:5],
         latest=latest,
