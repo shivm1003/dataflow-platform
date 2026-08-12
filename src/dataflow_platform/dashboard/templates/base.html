@@ -7,9 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/dashboard.css" />
+  <link rel="stylesheet" href="/static/dashboard.css?v=login-dark" />
 </head>
-<body>
+<body class="{% if bare %}bare{% endif %}">
+  {% if bare %}
+    {% block bare_content %}{% endblock %}
+  {% else %}
   <div class="app">
     <aside class="sidebar">
       <div class="side-brand">
@@ -40,16 +43,28 @@
       </nav>
       <div class="help-card">
         <div class="help-ico">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a5 5 0 0 1 5 5v1a4 4 0 0 0 4 4v2a4 4 0 0 0-4 4H7a4 4 0 0 0-4-4v-2a4 4 0 0 0 4-4V8a5 5 0 0 1 5-5z"/></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a5 5 0 0 1 5 5v1a4 4 0 0 0 0 0v2a4 4 0 0 0-4 0H7a4 4 0 0 0-4-4v-2a4 4 0 0 0 0-4V8a5 5 0 0 1 5-5z"/></svg>
         </div>
         <p>Need help? We're here to assist you.</p>
         <button class="btn-coral" type="button" disabled>Contact Support</button>
       </div>
+      {% if current_user %}
+      <div class="side-user">
+        <div class="side-user-meta">
+          <strong>{{ current_user.username }}</strong>
+          <span>{{ current_user.role.value }}{% if current_user.client_name %} · {{ current_user.client_name }}{% endif %}</span>
+        </div>
+        <form method="post" action="/logout">
+          <button type="submit" class="btn-ghost">Log out</button>
+        </form>
+      </div>
+      {% endif %}
     </aside>
     <div class="main">
       {% block content %}{% endblock %}
     </div>
   </div>
   {% block scripts %}{% endblock %}
+  {% endif %}
 </body>
 </html>

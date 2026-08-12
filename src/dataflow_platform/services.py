@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
+from dataflow_platform.auth import normalize_client_name
 from dataflow_platform.models import (
     FeedDelivery,
     FilterFlag,
@@ -60,6 +61,7 @@ def _apply_scraper_filters(
     status: ScraperStatus | None = None,
     q: str | None = None,
 ) -> Select[tuple[Scraper]]:
+    client_name = normalize_client_name(client_name)
     if client_name:
         stmt = stmt.where(Scraper.client_name == client_name)
     if needs_rerun is not None:
@@ -107,6 +109,7 @@ def upsert_scraper(
     schedule_day: str | None = None,
     schedule_time: time | None = None,
 ) -> Scraper:
+    client_name = normalize_client_name(client_name)
     existing = session.scalar(select(Scraper).where(Scraper.spider_name == spider_name))
     if existing is None:
         scraper = Scraper(
@@ -242,6 +245,7 @@ def list_recent_runs(
     client_name: str | None = None,
     limit: int = 50,
 ) -> list[ScraperRun]:
+    client_name = normalize_client_name(client_name)
     stmt = select(ScraperRun).order_by(ScraperRun.finished_at.desc()).limit(limit)
     if spider_name:
         stmt = stmt.where(ScraperRun.spider_name == spider_name)
@@ -431,6 +435,7 @@ def _scraped_sum(
     end: datetime,
     client_name: str | None = None,
 ) -> int:
+    client_name = normalize_client_name(client_name)
     q = select(func.coalesce(func.sum(ScraperRun.scraped_count), 0)).where(
         ScraperRun.finished_at >= start,
         ScraperRun.finished_at < end,
@@ -444,6 +449,7 @@ def _scraped_sum(
 
 
 def dashboard_metrics(session: Session, *, client_name: str | None = None) -> dict[str, Any]:
+    client_name = normalize_client_name(client_name)
     scrapers = list_scrapers(session, client_name=client_name)
     total = len(scrapers)
     active = sum(1 for s in scrapers if s.status == ScraperStatus.active)
@@ -550,6 +556,7 @@ def overview_series(
     month: int,
     client_name: str | None = None,
 ) -> dict[str, Any]:
+    client_name = normalize_client_name(client_name)
     days_in_month = calendar.monthrange(year, month)[1]
     month_start = datetime(year, month, 1, tzinfo=timezone.utc)
     if month == 12:

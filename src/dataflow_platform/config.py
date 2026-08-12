@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # Dashboard auth (generate a strong SECRET_KEY for any shared/public deploy)
+    secret_key: str = "dev-only-change-me-not-for-production"
+    session_max_age_seconds: int = 60 * 60 * 24 * 7
+    session_https_only: bool = False
+    login_rate_limit_attempts: int = 10
+    login_rate_limit_window_seconds: int = 60 * 15
+
     # QA thresholds
     qa_stale_hours: int = 36
     qa_coverage_ratio: float = 0.5

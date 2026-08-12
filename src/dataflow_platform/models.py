@@ -57,6 +57,35 @@ class RunStatus(str, enum.Enum):
     failed = "failed"
 
 
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    client = "client"
+
+
+class User(Base):
+    """Dashboard login — admin sees all; client is scoped to client_name."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role", native_enum=True),
+        nullable=False,
+        default=UserRole.client,
+    )
+    client_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 class Scraper(Base):
     """One row per scraper — config plus latest run summary and lifetime stats."""
 

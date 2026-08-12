@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from dataflow_platform.auth import normalize_client_name
 from dataflow_platform.config import get_settings
 from dataflow_platform.db import SessionLocal
 from dataflow_platform.models import (
@@ -208,7 +209,7 @@ def seed_scrapers(path: Path | None = None) -> tuple[int, int]:
                 "filter_flag": _map_filter_flag(meta.get("filterFlag")),
                 "proxy_usage": _map_proxy_usage(meta.get("proxyUsage")),
                 "domain_name": _empty_to_none(meta.get("domainName")),
-                "client_name": _empty_to_none(meta.get("clientName")),
+                "client_name": normalize_client_name(meta.get("clientName")),
                 "start_url": _empty_to_none(meta.get("startUrl")),
                 "scraped_columns": _default_scraped_columns(spider_name),
                 "last_scraped": _parse_datetime(meta.get("lastScraped")),
