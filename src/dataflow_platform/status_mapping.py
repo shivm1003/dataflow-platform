@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from dataflow_platform.models import FeedDelivery, ProxyUsage, Scraper, ScraperStatus
+from dataflow_platform.models import FeedDelivery, ProxyUsage, Scraper
 
 
 def derive_display_name(spider_name: str, display_name: str | None = None) -> str:
@@ -33,21 +33,22 @@ def source_directory_status(scraper: Scraper) -> str:
     """Sources table label: Completed | Running | Needs attention."""
     if scraper.needs_rerun or scraper.qa_passed is False:
         return "Needs attention"
-    if scraper.last_scraped is None or scraper.run_count == 0:
-        return "Running"
-    if scraper.status == ScraperStatus.inactive:
+    if getattr(scraper, "is_running", False):
         return "Running"
     return "Completed"
 
 
 def job_center_bucket(scraper: Scraper, *, now: datetime | None = None) -> str:
-    """Job Center tab key: completed | scheduled | attention.
+    """Job Center tab key: completed | scheduled | attention | running.
 
     Completed = successful finish today. Scheduled = waiting on next cron
     (has schedule and not finished today, or never run). Attention = QA flags.
+    Running = crawl in progress (is_running).
     """
     if scraper.needs_rerun or scraper.qa_passed is False:
         return "attention"
+    if getattr(scraper, "is_running", False):
+        return "running"
 
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:

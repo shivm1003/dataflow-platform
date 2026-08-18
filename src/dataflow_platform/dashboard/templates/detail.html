@@ -77,6 +77,7 @@
           <dt>Display name</dt><dd>{{ scraper.display_label }}</dd>
           <dt>Client</dt><dd>{{ scraper.client_name }}</dd>
           <dt>Domain</dt><dd>{{ scraper.domain_name }}</dd>
+          <dt>Created</dt><dd>{{ scraper.created_at }}</dd>
           <dt>Status</dt><dd><span class="pill-dot {% if scraper.status == 'active' %}ok{% endif %}">{{ scraper.status|title }}</span></dd>
           <dt>Source status</dt><dd>{{ scraper.source_status }}</dd>
         </dl>

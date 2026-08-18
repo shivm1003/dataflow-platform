@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote
 
@@ -33,11 +34,12 @@ from dataflow_platform.services import (
     activity_feed,
     coverage_quality,
     dashboard_metrics,
+    display_schedule_for,
+    display_tz_for,
     distinct_clients,
     get_scraper_by_name,
     job_center,
     list_recent_runs,
-    list_scrapers,
     next_schedule_label,
     overview_series,
     schedule_summary,
@@ -101,12 +103,14 @@ def _date_label() -> str:
     return f"{now.strftime('%a')}, {now.strftime('%B')} {now.day}"
 
 
-def _fmt_dt(value: datetime | None) -> str:
+def _fmt_dt(value: datetime | None, tz: ZoneInfo | None = None) -> str:
     if value is None:
         return "—"
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if tz is None:
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return value.astimezone(tz).strftime("%b %d, %Y %I:%M %p")
 
 
 def _fmt_ago(value: datetime | None) -> str:
@@ -337,8 +341,6 @@ def dashboard_sources(
         order=order_key,
     )
     metrics = dashboard_metrics(session, client_name=client_filter)
-    scrapers = list_scrapers(session, client_name=client_filter, q=query or None)
-    lifetime = sum(s.lifetime_scraped_count or 0 for s in scrapers)
     total_jobs = sum(r["jobs"] for r in rows)
     total_sources = len(rows)
     total_pages = max(1, (total_sources + per_page - 1) // per_page)
@@ -362,7 +364,6 @@ def dashboard_sources(
         sort=sort_key,
         order=order_key,
         metrics=metrics,
-        lifetime_fmt=f"{lifetime:,}",
         total_jobs=total_jobs,
     )
 
@@ -391,13 +392,22 @@ def dashboard_scraper_detail(
     scraped = int(scraper.scraped_count or 0)
     jobs_pct = min(100.0, round(100 * scraped / jobs, 1)) if jobs > 0 else None
     delta = spider_previous_run_delta(session, spider_name=spider_name)
+    mapped = display_schedule_for(scraper.client_name, scraper.schedule_time)
+    client_tz = display_tz_for(scraper.client_name)
     schedule_parts = []
-    if scraper.schedule_day:
-        schedule_parts.append(_compact_schedule_days(scraper.schedule_day))
-    if scraper.schedule_time:
-        schedule_parts.append(scraper.schedule_time.strftime("%H:%M"))
+    if mapped is not None:
+        schedule_parts.append(_compact_schedule_days(mapped["days"]))
+        schedule_parts.append(mapped["local_time"].strftime("%H:%M"))
+        next_run = next_schedule_label(
+            mapped["days"], mapped["local_time"], tz=mapped["tz"]
+        )
+    else:
+        if scraper.schedule_day:
+            schedule_parts.append(_compact_schedule_days(scraper.schedule_day))
+        if scraper.schedule_time:
+            schedule_parts.append(scraper.schedule_time.strftime("%H:%M"))
+        next_run = next_schedule_label(scraper.schedule_day, scraper.schedule_time)
     schedule_label = " · ".join(schedule_parts) if schedule_parts else "—"
-    next_run = next_schedule_label(scraper.schedule_day, scraper.schedule_time)
     auto_run = bool(scraper.schedule_time or (scraper.schedule_day or "").strip())
 
     view = {
@@ -411,6 +421,9 @@ def dashboard_scraper_detail(
         "source_status": source_directory_status(scraper),
         "domain_name": scraper.domain_name or "—",
         "client_name": scraper.client_name or "—",
+        "created_at": (
+            scraper.created_date.strftime("%b %d, %Y") if scraper.created_date else "—"
+        ),
         "start_url": scraper.start_url or "",
         "scraped_columns": columns,
         "schedule_day": scraper.schedule_day or "—",
@@ -420,7 +433,7 @@ def dashboard_scraper_detail(
         "schedule_label": schedule_label,
         "next_run": next_run,
         "auto_run": auto_run,
-        "last_scraped": _fmt_dt(scraper.last_scraped),
+        "last_scraped": _fmt_dt(scraper.last_scraped, client_tz),
         "last_scraped_ago": _fmt_ago(scraper.last_scraped),
         "jobs_count": jobs,
         "scraped_count": scraped,
@@ -453,7 +466,7 @@ def dashboard_scraper_detail(
         qa_ok = r.success and not (r.error_message)
         runs.append(
             {
-                "finished_at": _fmt_dt(r.finished_at),
+                "finished_at": _fmt_dt(r.finished_at, client_tz),
                 "status": "Succeeded" if r.success else "Failed",
                 "success": r.success,
                 "scraped_count": r.scraped_count,

@@ -28,6 +28,7 @@ from dataflow_platform.services import (
     job_center,
     list_recent_runs,
     list_scrapers,
+    mark_scraper_running,
     overview_series,
     sources_rows,
     top_jobs,
@@ -100,6 +101,18 @@ def put_scraper(
         schedule_day=body.schedule_day,
         schedule_time=body.schedule_time,
     )
+
+
+@router.post("/scrapers/{spider_name}/running", response_model=ScraperOut)
+def post_scraper_running(
+    spider_name: str,
+    session: Session = Depends(get_db),
+) -> Scraper:
+    """Mark scraper as Running when a crawl starts (called from Scrapy)."""
+    try:
+        return mark_scraper_running(session, spider_name)
+    except ScraperServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.post("/scrapers/{spider_name}/runs", response_model=ScraperOut)

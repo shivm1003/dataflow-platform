@@ -39,6 +39,7 @@ class ScraperOut(BaseModel):
     lifetime_scraped_count: int
     run_count: int
     needs_rerun: bool
+    is_running: bool = False
     qa_notes: str | None
     created_date: date
     updated_at: datetime

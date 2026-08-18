@@ -144,6 +144,7 @@ class Scraper(Base):
     run_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     needs_rerun: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_running: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     qa_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_date: Mapped[date] = mapped_column(
