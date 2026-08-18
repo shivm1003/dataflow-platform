@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -15,7 +15,13 @@ from dataflow_platform.models import (
     ScraperRun,
     ScraperStatus,
 )
-from dataflow_platform.services import _pct_delta, apply_run_summary
+from dataflow_platform.services import (
+    _pct_delta,
+    apply_run_summary,
+    scheduled_badge_count,
+    throughput_label_for_day,
+    validation_pct_from_counts,
+)
 from dataflow_platform.status_mapping import (
     derive_display_name,
     feed_type_label,
@@ -31,6 +37,21 @@ def test_pct_delta() -> None:
     assert _pct_delta(10, 0) is None
     assert _pct_delta(0, 0) is None
     assert _pct_delta(100, 100) is None
+    assert _pct_delta(62, 1) == 100.0
+    assert _pct_delta(0, 100) == -100.0
+    assert _pct_delta(691, 2) == 100.0
+
+
+def test_validation_pct_uses_remaining_scraped_when_one_fails() -> None:
+    # 27 scrapers with title+description, 1 empty fail (0/0) — not blank, not 0%.
+    assert (
+        validation_pct_from_counts(2528, 2528, has_scrapers=True, qa_failed=1) == 100.0
+    )
+    # Unreported valid_count still shows 0% of remaining scraped, not a blank row.
+    assert validation_pct_from_counts(0, 2528, has_scrapers=True, qa_failed=1) == 0.0
+    assert validation_pct_from_counts(0, 0, has_scrapers=True, qa_failed=1) == 0.0
+    assert validation_pct_from_counts(0, 0, has_scrapers=False, qa_failed=0) is None
+    assert validation_pct_from_counts(75, 80, has_scrapers=True, qa_failed=0) == 93.8
 
 
 def test_host_and_feed_label() -> None:
@@ -57,16 +78,90 @@ def test_host_and_feed_label() -> None:
 def test_next_schedule_and_feed_health() -> None:
     from datetime import time as dtime
 
-    from dataflow_platform.services import feed_health, next_schedule_label
+    from dataflow_platform.services import feed_health, next_schedule_at, next_schedule_label
 
-    now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)  # Saturday
+    now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)  # Saturday 12:00 CEST
     label = next_schedule_label("Daily", dtime(11, 30), now=now)
     assert "11:30" in label
+    # Medblast cron is 22:00 CEST Mon-Fri; before that time, next run is still today.
+    monday_evening = datetime(2026, 8, 17, 17, 52, tzinfo=timezone.utc)  # 19:52 CEST
+    nxt = next_schedule_at("Mon,Tue,Wed,Thu,Fri", dtime(22, 0), now=monday_evening)
+    assert nxt is not None
+    assert nxt.date() == date(2026, 8, 17)
+    assert nxt.hour == 22
+    after = datetime(2026, 8, 17, 20, 5, tzinfo=timezone.utc)  # 22:05 CEST
+    nxt2 = next_schedule_at("Mon,Tue,Wed,Thu,Fri", dtime(22, 0), now=after)
+    assert nxt2 is not None
+    assert nxt2.date() == date(2026, 8, 18)
     assert feed_health(status="Completed", jobs=10, extracted=10) == "green"
     assert feed_health(status="Completed", jobs=0, extracted=0) == "green"
     assert feed_health(status="Completed", jobs=10, extracted=8) == "yellow"
     assert feed_health(status="Needs attention", jobs=10, extracted=10) == "red"
     assert feed_health(status="Running", jobs=None, extracted=None) == ""
+
+
+def test_sources_display_schedule_map() -> None:
+    from datetime import time as dtime
+    from zoneinfo import ZoneInfo
+
+    from dataflow_platform.services import (
+        display_schedule_for,
+        display_tz_for,
+        last_completed_label,
+        next_schedule_at,
+        next_schedule_label,
+    )
+
+    ny = ZoneInfo("America/New_York")
+    mb = display_schedule_for("Medblast", dtime(22, 0))
+    assert mb is not None
+    assert mb["days"] == "Mon,Tue,Wed,Thu,Fri"
+    assert mb["local_time"] == dtime(17, 0)
+    assert mb["tz"] == ny
+
+    div12 = display_schedule_for("diversifying", dtime(10, 2))
+    assert div12 is not None
+    assert div12["days"] == "Mon,Wed,Fri"
+    assert div12["local_time"] == dtime(8, 0)
+
+    div20 = display_schedule_for("diversifying", dtime(11, 0))
+    assert div20 is not None
+    assert div20["days"] == "Mon,Tue,Wed,Thu"
+
+    hd = display_schedule_for("hirediverse", dtime(12, 30))
+    assert hd is not None
+    assert hd["tz"] == ZoneInfo("America/Toronto")
+    assert hd["local_time"] == dtime(8, 0)
+
+    assert display_schedule_for("waterjobs", dtime(9, 0)) is None
+    assert display_schedule_for("medblast", dtime(17, 0)) is None  # Berlin key only
+    assert next_schedule_label("Mon,Tue,Wed,Thu,Fri", None) == "Mon,Tue,Wed,Thu,Fri"
+
+    # NY 17:00 Mon–Fri, still today before 17:00.
+    before = datetime(2026, 8, 18, 16, 0, tzinfo=ny)  # Tue 16:00 EDT
+    nxt = next_schedule_at("Mon,Tue,Wed,Thu,Fri", dtime(17, 0), now=before, tz=ny)
+    assert nxt is not None
+    local = nxt.astimezone(ny)
+    assert local.date() == date(2026, 8, 18)
+    assert local.hour == 17
+
+    # US/Eastern DST week: after 17:00 Fri 6 Mar 2026 EST → Mon 9 Mar 17:00 EDT.
+    after_fri = datetime(2026, 3, 6, 22, 30, tzinfo=timezone.utc)  # 17:30 EST
+    dst = next_schedule_at("Mon,Tue,Wed,Thu,Fri", dtime(17, 0), now=after_fri, tz=ny)
+    assert dst is not None
+    dst_local = dst.astimezone(ny)
+    assert dst_local.date() == date(2026, 3, 9)
+    assert dst_local.hour == 17
+    assert dst_local.tzname() == "EDT"
+
+    assert last_completed_label(None, None) == "—"
+    assert last_completed_label(datetime(2026, 8, 18, 21, 0, tzinfo=timezone.utc), None) == "—"
+    assert last_completed_label(None, ny) == "Never"
+    done = datetime(2026, 8, 18, 21, 0, tzinfo=timezone.utc)  # 17:00 EDT
+    assert last_completed_label(done, ny) == "Aug 18, 2026 05:00 PM"
+    # Failed runs are excluded by the success=true query; helper never sees them.
+    assert display_tz_for("waterjobs") is None
+    assert display_tz_for("medblast") == ny
 
 
 def test_fleet_quality_rates() -> None:
@@ -104,6 +199,7 @@ def test_source_and_job_center_status() -> None:
         status=ScraperStatus.active,
         schedule_day="Mon,Tue,Wed,Thu,Fri",
         schedule_time=dtime(17, 0),
+        is_running=False,
     )
     assert source_directory_status(finished) == "Completed"  # type: ignore[arg-type]
     assert job_center_bucket(finished) == "completed"  # type: ignore[arg-type]
@@ -116,9 +212,23 @@ def test_source_and_job_center_status() -> None:
         status=ScraperStatus.active,
         schedule_day=None,
         schedule_time=None,
+        is_running=False,
     )
-    assert source_directory_status(queued) == "Running"  # type: ignore[arg-type]
+    assert source_directory_status(queued) == "Completed"  # type: ignore[arg-type]
     assert job_center_bucket(queued) == "scheduled"  # type: ignore[arg-type]
+
+    running = SimpleNamespace(
+        needs_rerun=False,
+        qa_passed=True,
+        last_scraped=datetime.now(timezone.utc) - timedelta(days=1),
+        run_count=3,
+        status=ScraperStatus.active,
+        schedule_day="Mon,Tue,Wed,Thu,Fri",
+        schedule_time=dtime(17, 0),
+        is_running=True,
+    )
+    assert source_directory_status(running) == "Running"  # type: ignore[arg-type]
+    assert job_center_bucket(running) == "running"  # type: ignore[arg-type]
 
     waiting = SimpleNamespace(
         needs_rerun=False,
@@ -128,6 +238,7 @@ def test_source_and_job_center_status() -> None:
         status=ScraperStatus.active,
         schedule_day="Mon,Tue,Wed,Thu,Fri",
         schedule_time=dtime(17, 0),
+        is_running=False,
     )
     assert job_center_bucket(waiting) == "scheduled"  # type: ignore[arg-type]
 
@@ -139,9 +250,61 @@ def test_source_and_job_center_status() -> None:
         status=ScraperStatus.active,
         schedule_day=None,
         schedule_time=None,
+        is_running=True,
     )
     assert source_directory_status(bad) == "Needs attention"  # type: ignore[arg-type]
     assert job_center_bucket(bad) == "attention"  # type: ignore[arg-type]
+
+    # Badge includes Attention; rows stay exclusive via job_center_bucket.
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+    yesterday = now - timedelta(days=1)
+    fleet = [
+        SimpleNamespace(
+            needs_rerun=False,
+            qa_passed=True,
+            last_scraped=yesterday,
+            run_count=3,
+            schedule_day="Mon,Tue,Wed,Thu,Fri",
+            schedule_time=dtime(22, 0),
+            is_running=False,
+        ),
+        SimpleNamespace(
+            needs_rerun=True,
+            qa_passed=False,
+            last_scraped=yesterday,
+            run_count=2,
+            schedule_day="Mon,Tue,Wed,Thu,Fri",
+            schedule_time=dtime(22, 0),
+            is_running=False,
+        ),
+        SimpleNamespace(
+            needs_rerun=False,
+            qa_passed=True,
+            last_scraped=now,
+            run_count=4,
+            schedule_day="Mon,Tue,Wed,Thu,Fri",
+            schedule_time=dtime(22, 0),
+            is_running=False,
+        ),
+    ]
+    assert scheduled_badge_count(fleet, now=now) == 2
+    assert job_center_bucket(fleet[0], now=now) == "scheduled"
+    assert job_center_bucket(fleet[1], now=now) == "attention"
+    assert job_center_bucket(fleet[2], now=now) == "completed"
+
+
+def test_throughput_label_for_day() -> None:
+    today = date(2026, 8, 18)
+    assert throughput_label_for_day(None, today=today) == "No successful runs yet"
+    assert throughput_label_for_day(today, today=today) == "From successful runs today"
+    assert (
+        throughput_label_for_day(date(2026, 8, 17), today=today)
+        == "From successful runs yesterday"
+    )
+    assert (
+        throughput_label_for_day(date(2026, 8, 14), today=today)
+        == "From successful runs on Friday"
+    )
 
 
 def test_apply_run_summary_dual_writes_run_row() -> None:
@@ -157,6 +320,7 @@ def test_apply_run_summary_dual_writes_run_row() -> None:
         lifetime_scraped_count=0,
         run_count=0,
         needs_rerun=False,
+        is_running=True,
         scraped_count=None,
         jobs_count=None,
         skipped_jobs=None,
@@ -201,4 +365,5 @@ def test_apply_run_summary_dual_writes_run_row() -> None:
     assert run.scraped_count == 12
     assert run.success is True
     assert run.status == RunStatus.succeeded
+    assert scraper.is_running is False
     session.commit.assert_called_once()

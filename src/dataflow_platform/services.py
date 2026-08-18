@@ -7,6 +7,7 @@ import re
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 from urllib.parse import urlparse
 
@@ -30,6 +31,22 @@ from dataflow_platform.status_mapping import (
     job_center_bucket,
     source_directory_status,
 )
+
+# Crontab and the operator UI use the server timezone (Europe/Berlin).
+SCHEDULE_TZ = ZoneInfo("Europe/Berlin")
+
+# Display-only original client schedules. Berlin (hour, minute) is a group key, not a conversion.
+_DISPLAY_SCHEDULES: dict[tuple[str, int, int], tuple[str, str, time]] = {
+    ("medblast", 22, 0): ("America/New_York", "Mon,Tue,Wed,Thu,Fri", time(17, 0)),
+    ("hirediverse", 12, 30): ("America/Toronto", "Mon,Tue,Wed,Thu,Fri", time(8, 0)),
+    ("diversifying", 10, 2): ("Europe/London", "Mon,Wed,Fri", time(8, 0)),
+    ("diversifying", 11, 0): ("Europe/London", "Mon,Tue,Wed,Thu", time(8, 0)),
+}
+_CLIENT_DISPLAY_TZ: dict[str, str] = {
+    "medblast": "America/New_York",
+    "hirediverse": "America/Toronto",
+    "diversifying": "Europe/London",
+}
 
 
 class ScraperServiceError(Exception):
@@ -233,6 +250,17 @@ def apply_run_summary(
             note = f"{note}; {error_message}" if note else error_message
         scraper.qa_notes = note
 
+    scraper.is_running = False
+
+    session.commit()
+    session.refresh(scraper)
+    return scraper
+
+
+def mark_scraper_running(session: Session, spider_name: str) -> Scraper:
+    """Mark a scraper as currently crawling (dashboard Running status)."""
+    scraper = get_scraper_by_name(session, spider_name)
+    scraper.is_running = True
     session.commit()
     session.refresh(scraper)
     return scraper
@@ -276,7 +304,8 @@ def _pct_delta(current: int, previous: int) -> float | None:
     delta = round(100 * (current - previous) / previous, 1)
     if delta == 0:
         return None
-    return delta
+    # Cap display noise when prior baseline was tiny (e.g. failed partial scrape).
+    return max(-100.0, min(100.0, delta))
 
 
 _WEEKDAY_ALIASES = {
@@ -317,14 +346,48 @@ def _parse_schedule_weekdays(schedule_day: str | None) -> set[int] | None:
     return found or None
 
 
+def display_schedule_for(
+    client_name: str | None, berlin_time: time | None
+) -> dict[str, Any] | None:
+    """Original client-local schedule for Sources NEXT RUN, or None if unmapped."""
+    client = normalize_client_name(client_name)
+    if not client or berlin_time is None:
+        return None
+    row = _DISPLAY_SCHEDULES.get((client, berlin_time.hour, berlin_time.minute))
+    if row is None:
+        return None
+    tz_name, days, local_time = row
+    return {"tz": ZoneInfo(tz_name), "tz_name": tz_name, "days": days, "local_time": local_time}
+
+
+def display_tz_for(client_name: str | None) -> ZoneInfo | None:
+    """IANA zone for Sources LAST COMPLETED, or None if unknown."""
+    client = normalize_client_name(client_name)
+    if not client:
+        return None
+    name = _CLIENT_DISPLAY_TZ.get(client)
+    return ZoneInfo(name) if name else None
+
+
+def last_completed_label(finished_at: datetime | None, tz: ZoneInfo | None) -> str:
+    if tz is None:
+        return "—"
+    if finished_at is None:
+        return "Never"
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=timezone.utc)
+    return finished_at.astimezone(tz).strftime("%b %d, %Y %I:%M %p")
+
+
 def next_schedule_label(
     schedule_day: str | None,
     schedule_time: time | None,
     *,
     now: datetime | None = None,
+    tz: ZoneInfo | None = None,
 ) -> str:
     """Human label for the next scheduled run from day + time config."""
-    candidate = next_schedule_at(schedule_day, schedule_time, now=now)
+    candidate = next_schedule_at(schedule_day, schedule_time, now=now, tz=tz)
     if candidate is None:
         if schedule_time is None and not (schedule_day or "").strip():
             return "—"
@@ -337,13 +400,15 @@ def next_schedule_at(
     schedule_time: time | None,
     *,
     now: datetime | None = None,
+    tz: ZoneInfo | None = None,
 ) -> datetime | None:
-    """Next UTC datetime for schedule_day + schedule_time, or None."""
+    """Next datetime for schedule_day + schedule_time. Default tz is cron Europe/Berlin."""
     now = now or datetime.now(timezone.utc)
     if schedule_time is None:
         return None
+    zone = tz or SCHEDULE_TZ
     weekdays = _parse_schedule_weekdays(schedule_day)
-    cursor = now.astimezone(timezone.utc)
+    cursor = now.astimezone(zone)
     for offset in range(0, 8):
         day = cursor.date() + timedelta(days=offset)
         if weekdays is not None and day.weekday() not in weekdays:
@@ -355,7 +420,7 @@ def next_schedule_at(
             schedule_time.hour,
             schedule_time.minute,
             schedule_time.second,
-            tzinfo=timezone.utc,
+            tzinfo=zone,
         )
         if candidate > cursor:
             return candidate
@@ -367,7 +432,7 @@ def next_schedule_at(
         schedule_time.hour,
         schedule_time.minute,
         schedule_time.second,
-        tzinfo=timezone.utc,
+        tzinfo=zone,
     )
 
 
@@ -395,6 +460,47 @@ def _fmt_pct(value: float | int | None) -> str | None:
     if abs(n - round(n)) < 0.05:
         return str(int(round(n)))
     return f"{n:.1f}"
+
+
+def _fmt_short_date(value: datetime | None) -> str:
+    if value is None:
+        return "—"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(SCHEDULE_TZ).strftime("%b %d, %Y").replace(" 0", " ")
+
+
+def throughput_label_for_day(run_day: date | None, *, today: date) -> str:
+    if run_day is None:
+        return "No successful runs yet"
+    if run_day == today:
+        return "From successful runs today"
+    if run_day == today - timedelta(days=1):
+        return "From successful runs yesterday"
+    return f"From successful runs on {run_day.strftime('%A')}"
+
+
+def _tz_day_bounds(day: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    start = datetime(day.year, day.month, day.day, tzinfo=tz)
+    return start, start + timedelta(days=1)
+
+
+def validation_pct_from_counts(
+    valid_total: int,
+    scraped_total: int,
+    *,
+    has_scrapers: bool,
+    qa_failed: int,
+) -> float | None:
+    """100 * valid / scraped over items that were actually scraped.
+
+    Empty/failed scrapers (0 scraped) do not blank the row; they just drop out of both sums.
+    """
+    if scraped_total > 0:
+        return round(100 * valid_total / scraped_total, 1)
+    if has_scrapers:
+        return 0.0 if qa_failed else 100.0
+    return None
 
 
 def _fmt_until(value: datetime | None, *, now: datetime | None = None) -> str:
@@ -457,6 +563,7 @@ def dashboard_metrics(session: Session, *, client_name: str | None = None) -> di
     alerts = sum(1 for s in scrapers if s.needs_rerun)
     active_pct = round(100 * active / total, 1) if total else 0.0
     client_count = 1 if client_name else len(distinct_clients(session))
+    lifetime = sum(int(s.lifetime_scraped_count or 0) for s in scrapers)
 
     now = datetime.now(timezone.utc)
     today_start, tomorrow = _day_bounds(now.date())
@@ -508,27 +615,43 @@ def dashboard_metrics(session: Session, *, client_name: str | None = None) -> di
     total_runs = succ + fail
     success_rate = round(100 * succ / total_runs, 1) if total_runs else None
 
-    # ponytail: avg items/min from successful runs with runtime — upgrade when request counts exist
-    runtime_q = (
-        select(
-            func.coalesce(func.sum(ScraperRun.scraped_count), 0),
-            func.coalesce(func.sum(ScraperRun.total_runtime_seconds), 0),
-        )
-        .where(
-            ScraperRun.finished_at >= today_start,
-            ScraperRun.finished_at < tomorrow,
-            ScraperRun.success.is_(True),
-            ScraperRun.total_runtime_seconds.is_not(None),
-            ScraperRun.total_runtime_seconds > 0,
-        )
-    )
+    # ponytail: avg items/min from last successful run's calendar day (Europe/Berlin)
+    last_run_q = select(func.max(ScraperRun.finished_at)).where(ScraperRun.success.is_(True))
     if client_name:
-        runtime_q = runtime_q.join(Scraper, Scraper.scrape_id == ScraperRun.scrape_id).where(
+        last_run_q = last_run_q.join(Scraper, Scraper.scrape_id == ScraperRun.scrape_id).where(
             Scraper.client_name == client_name
         )
-    row = session.execute(runtime_q).one()
-    items_sum, runtime_sum = int(row[0] or 0), int(row[1] or 0)
-    throughput = round(items_sum / (runtime_sum / 60), 1) if runtime_sum > 0 else None
+    last_at = session.scalar(last_run_q)
+    today_berlin = datetime.now(SCHEDULE_TZ).date()
+    if last_at is None:
+        throughput = 0
+        throughput_label = throughput_label_for_day(None, today=today_berlin)
+    else:
+        if last_at.tzinfo is None:
+            last_at = last_at.replace(tzinfo=timezone.utc)
+        run_day = last_at.astimezone(SCHEDULE_TZ).date()
+        day_start, day_end = _tz_day_bounds(run_day, SCHEDULE_TZ)
+        runtime_q = (
+            select(
+                func.coalesce(func.sum(ScraperRun.scraped_count), 0),
+                func.coalesce(func.sum(ScraperRun.total_runtime_seconds), 0),
+            )
+            .where(
+                ScraperRun.finished_at >= day_start,
+                ScraperRun.finished_at < day_end,
+                ScraperRun.success.is_(True),
+                ScraperRun.total_runtime_seconds.is_not(None),
+                ScraperRun.total_runtime_seconds > 0,
+            )
+        )
+        if client_name:
+            runtime_q = runtime_q.join(
+                Scraper, Scraper.scrape_id == ScraperRun.scrape_id
+            ).where(Scraper.client_name == client_name)
+        row = session.execute(runtime_q).one()
+        items_sum, runtime_sum = int(row[0] or 0), int(row[1] or 0)
+        throughput = round(items_sum / (runtime_sum / 60), 1) if runtime_sum > 0 else 0
+        throughput_label = throughput_label_for_day(run_day, today=today_berlin)
 
     return {
         "total": total,
@@ -545,6 +668,9 @@ def dashboard_metrics(session: Session, *, client_name: str | None = None) -> di
         "scraped_week_delta_pct": _pct_delta(scraped_week, scraped_prev_week),
         "scraped_month_delta_pct": _pct_delta(scraped_month, scraped_prev_month),
         "throughput_per_min": throughput,
+        "throughput_label": throughput_label,
+        "lifetime": lifetime,
+        "lifetime_fmt": f"{lifetime:,}",
         "client_name": client_name,
     }
 
@@ -678,6 +804,43 @@ def _ago(value: datetime | None) -> str:
     return f"{seconds // 86400}d ago"
 
 
+def _has_schedule(scraper: Any) -> bool:
+    return bool(
+        scraper.schedule_time is not None
+        or (scraper.schedule_day or "").strip()
+        or scraper.run_count == 0
+        or scraper.last_scraped is None
+    )
+
+
+def _finished_successfully_today(scraper: Any, *, today_start: datetime) -> bool:
+    if scraper.needs_rerun or scraper.qa_passed is False:
+        return False
+    last = scraper.last_scraped
+    if last is None:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return last >= today_start
+
+
+def scheduled_badge_count(scrapers: list[Any], *, now: datetime | None = None) -> int:
+    """Scheduled tab badge: has schedule, not completed today, not running (includes Attention)."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    n = 0
+    for s in scrapers:
+        if getattr(s, "is_running", False):
+            continue
+        if _finished_successfully_today(s, today_start=today_start):
+            continue
+        if _has_schedule(s):
+            n += 1
+    return n
+
+
 def job_center(
     session: Session, *, client_name: str | None = None, limit: int = 5
 ) -> dict[str, Any]:
@@ -721,6 +884,8 @@ def job_center(
         )
 
     counts["completed_today"] = counts["completed"]
+    # Badge includes Attention; rows stay exclusive (attention scrapers stay on that tab).
+    counts["scheduled"] = scheduled_badge_count(scrapers, now=now)
     # Full counts; at most `limit` display rows per status bucket.
     display: list[dict[str, Any]] = []
     for bucket in ("completed", "running", "scheduled", "attention"):
@@ -859,6 +1024,7 @@ def sources_rows(
 
     yday_by_scrape: dict[uuid.UUID, ScraperRun] = {}
     first_run_by_scrape: dict[uuid.UUID, datetime] = {}
+    last_ok_by_scrape: dict[uuid.UUID, datetime] = {}
     if scrapers:
         ids = [s.scrape_id for s in scrapers]
         yday_stmt = (
@@ -884,18 +1050,30 @@ def sources_rows(
             if first_at is not None:
                 first_run_by_scrape[scrape_id] = first_at
 
+        last_ok_stmt = (
+            select(ScraperRun.scrape_id, func.max(ScraperRun.finished_at))
+            .where(ScraperRun.success.is_(True), ScraperRun.scrape_id.in_(ids))
+            .group_by(ScraperRun.scrape_id)
+        )
+        for scrape_id, last_at in session.execute(last_ok_stmt).all():
+            if last_at is not None:
+                last_ok_by_scrape[scrape_id] = last_at
+
     rows: list[dict[str, Any]] = []
     for s in scrapers:
         status = source_directory_status(s)
         feed = _feed_label(s.feed_url) if s.feed_url else "—"
-        updated = "—"
-        if s.last_scraped:
-            ts = s.last_scraped
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            updated = ts.astimezone(timezone.utc).strftime("%b %d, %Y %I:%M %p")
-
-        schedule = next_schedule_label(s.schedule_day, s.schedule_time, now=now)
+        mapped = display_schedule_for(s.client_name, s.schedule_time)
+        if mapped is None:
+            schedule = "—"
+        else:
+            schedule = next_schedule_label(
+                mapped["days"], mapped["local_time"], now=now, tz=mapped["tz"]
+            )
+        updated = last_completed_label(
+            last_ok_by_scrape.get(s.scrape_id),
+            display_tz_for(s.client_name),
+        )
 
         jobs = int(s.jobs_count) if s.jobs_count is not None else None
         extracted = int(s.scraped_count) if s.scraped_count is not None else None
@@ -1251,13 +1429,12 @@ def coverage_quality(session: Session, *, client_name: str | None = None) -> dic
         summary = "No scrapers yet"
         summary_detail = "Seed scrapers to see quality"
 
-    # Validation %: use valid_count rate; if not reported yet, treat as 100 when healthy.
-    if valid_total > 0 and scraped_total > 0:
-        validation_pct: float | None = valid_records
-    elif scrapers and qa_failed == 0:
-        validation_pct = 100.0
-    else:
-        validation_pct = None
+    validation_pct = validation_pct_from_counts(
+        valid_total,
+        scraped_total,
+        has_scrapers=bool(scrapers),
+        qa_failed=qa_failed,
+    )
     validation_ok = validation_pct is not None and validation_pct >= 90 and qa_failed == 0
 
     fresh = True
@@ -1276,6 +1453,7 @@ def coverage_quality(session: Session, *, client_name: str | None = None) -> dic
         )
     )
     last_check = _fmt_short_ago(last_scraped_max, now=now)
+    last_check_date = _fmt_short_date(last_scraped_max)
     next_check = _fmt_until(next_run, now=now)
 
     feeds_healthy = max(0, scraper_total - stale_or_attention)
@@ -1337,6 +1515,7 @@ def coverage_quality(session: Session, *, client_name: str | None = None) -> dic
         "freshness_status": freshness_status,
         "freshness_detail": freshness_detail,
         "last_check": last_check,
+        "last_check_date": last_check_date,
         "next_check": next_check,
         "feeds_healthy": feeds_healthy,
         "published_pct": published_pct,

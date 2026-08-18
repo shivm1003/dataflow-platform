@@ -658,6 +658,11 @@
       background: var(--blue);
       border-radius: 999px;
     }
+    .top-updated {
+      margin: 12px 0 0;
+      font-size: 12px;
+      font-weight: 500;
+    }
     .muted { color: var(--ink-mute); font-weight: 600; }
     .time { color: var(--ink-mute); font-size: 11px; white-space: nowrap; }
 

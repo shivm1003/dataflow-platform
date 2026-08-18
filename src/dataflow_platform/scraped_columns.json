@@ -450,6 +450,21 @@
     "state",
     "title"
   ],
+  "hirediverse_dufferincounty": [
+    "category",
+    "city",
+    "country",
+    "description",
+    "job_link",
+    "job_reference",
+    "job_type",
+    "link",
+    "location",
+    "pub_date",
+    "remote",
+    "state",
+    "title"
+  ],
   "hirediverse_durhamregion": [
     "category",
     "description",

@@ -75,15 +75,18 @@
 
   <article class="metric">
     <div class="metric-head">
-      <h3>Throughput</h3>
+      <h3>Lifetime Scraped</h3>
       <div class="metric-ico">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/><path d="M4 19h16" opacity=".4"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
       </div>
     </div>
-    <div class="metric-value" style="font-size:22px">
-      {% if metrics.throughput_per_min is not none %}{{ metrics.throughput_per_min }} <small>items/min</small>{% else %}—{% endif %}
-    </div>
-    <div class="metric-sub">From successful runs today</div>
+    <div class="metric-value">{{ metrics.lifetime_fmt }}</div>
+    {% if metrics.scraped_week_delta_pct is not none %}
+    <div class="delta">{% if metrics.scraped_week_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.scraped_week_delta_pct|abs }}% vs last week</div>
+    {% endif %}
+    {% if metrics.scraped_month_delta_pct is not none %}
+    <div class="delta">{% if metrics.scraped_month_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.scraped_month_delta_pct|abs }}% vs last month</div>
+    {% endif %}
   </article>
 
   <article class="metric status-card">
@@ -171,6 +174,7 @@
       </select>
     </div>
     <div class="top-list" id="topList"></div>
+    <p class="top-updated muted">Last updated {{ quality.last_check_date }}</p>
   </article>
 </section>
 
