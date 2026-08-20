@@ -70,8 +70,14 @@
     }
     if (chartTip) {
       const m = monthsShort[(chartMonth || 1) - 1];
-      const val = chartDaily[i] != null ? Number(chartDaily[i]).toLocaleString() : "0";
-      chartTip.textContent = (i + 1) + " " + m + ": " + val;
+      const n = chartDaily[i] != null ? Number(chartDaily[i]) : 0;
+      const val = n.toLocaleString();
+      const unit = n === 1 ? "item scraped" : "items scraped";
+      chartTip.replaceChildren(
+        document.createTextNode((i + 1) + " " + m),
+        document.createElement("br"),
+        document.createTextNode(val + " " + unit)
+      );
       chartTip.style.left = ((tx / chartW) * 100) + "%";
     }
   }
@@ -130,23 +136,28 @@
 
   const statusMap = {
     completed: { label: "Completed", cls: "ok" },
-    running: { label: "Running", cls: "run" },
     scheduled: { label: "Scheduled", cls: "sched" },
     attention: { label: "Failed", cls: "fail" }
   };
   let activeFilter = "completed";
   const jobs = (data.job_center && data.job_center.jobs) || [];
   const emptyCopy = {
-    running: "No scrapers running right now",
     completed: "No completed jobs today",
     scheduled: "No scrapers scheduled",
     attention: "Nothing needs attention",
+  };
+  const infoColLabels = {
+    completed: "Items Processed",
+    scheduled: "Next run",
+    attention: "Info",
   };
 
   function renderJobs() {
     const body = document.getElementById("jobTableBody");
     const emptyEl = document.getElementById("jobCenterEmpty");
+    const infoCol = document.getElementById("jobInfoCol");
     const stage = body && body.closest(".job-center-body");
+    if (infoCol) infoCol.textContent = infoColLabels[activeFilter] || "Info";
     if (!body) return;
     const list = jobs.filter((j) => j.status === activeFilter);
     if (!list.length) {
@@ -163,14 +174,6 @@
     body.innerHTML = list.map((j) => {
       const s = statusMap[j.status] || { label: j.status, cls: "" };
       let info = '<span class="muted">' + (j.info || "—") + "</span>";
-      if (j.status === "running" && j.info && String(j.info).indexOf("%") >= 0) {
-        info =
-          '<div class="progress"><div class="progress-track"><i style="width:' +
-          j.info +
-          '"></i></div><span>' +
-          j.info +
-          "</span></div>";
-      }
       return (
         "<tr>" +
           '<td class="name"><a class="link" href="/dashboard/scrapers/' + encodeURIComponent(j.spider_name) + '">' + j.name + "</a></td>" +

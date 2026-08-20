@@ -482,7 +482,7 @@
 
     .chart-tip {
       position: absolute;
-      top: 28px;
+      top: 18px;
       left: 42%;
       transform: translateX(-50%);
       background: var(--ink);
@@ -492,6 +492,8 @@
       padding: 6px 10px;
       border-radius: 8px;
       white-space: nowrap;
+      text-align: center;
+      line-height: 1.3;
       pointer-events: none;
     }
     .chart-tip::after {
@@ -534,6 +536,15 @@
     .period-stats strong {
       font-size: 15px;
       font-weight: 800;
+    }
+    .period-stats .period-note {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--ink-mute);
+      margin-top: 2px;
+      text-transform: none;
+      letter-spacing: 0;
     }
 
     /* Job Center */

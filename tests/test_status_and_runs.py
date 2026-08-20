@@ -16,6 +16,7 @@ from dataflow_platform.models import (
     ScraperStatus,
 )
 from dataflow_platform.services import (
+    _fmt_pct,
     _pct_delta,
     apply_run_summary,
     scheduled_badge_count,
@@ -40,6 +41,13 @@ def test_pct_delta() -> None:
     assert _pct_delta(62, 1) == 100.0
     assert _pct_delta(0, 100) == -100.0
     assert _pct_delta(691, 2) == 100.0
+
+
+def test_fmt_pct_drops_trailing_zero() -> None:
+    assert _fmt_pct(100.0) == "100"
+    assert _fmt_pct(4.2) == "4.2"
+    assert _fmt_pct(0) == "0"
+    assert _fmt_pct(None) is None
 
 
 def test_validation_pct_uses_remaining_scraped_when_one_fails() -> None:
@@ -108,6 +116,7 @@ def test_sources_display_schedule_map() -> None:
         display_schedule_for,
         display_tz_for,
         last_completed_label,
+        next_run_display_label,
         next_schedule_at,
         next_schedule_label,
     )
@@ -162,6 +171,22 @@ def test_sources_display_schedule_map() -> None:
     # Failed runs are excluded by the success=true query; helper never sees them.
     assert display_tz_for("waterjobs") is None
     assert display_tz_for("medblast") == ny
+
+    # Job Center Scheduled uses the same client-local label as Sources Next Run.
+    now = datetime(2026, 8, 18, 16, 0, tzinfo=ny)
+    assert next_run_display_label("medblast", dtime(22, 0), now=now) == next_schedule_label(
+        mb["days"], mb["local_time"], now=now, tz=ny
+    )
+    # Already completed today (Berlin 22:00 ≈ 16:00 NY) → Next Run is tomorrow, not 5:00 PM today.
+    ran_today = datetime(2026, 8, 18, 16, 10, tzinfo=ny)
+    after_run = next_run_display_label(
+        "medblast", dtime(22, 0), now=now, last_completed=ran_today
+    )
+    assert "Aug 18" not in after_run
+    assert "5:00 PM" in after_run
+    nxt_dt = next_schedule_at(mb["days"], mb["local_time"], now=datetime(2026, 8, 18, 17, 0, tzinfo=ny), tz=ny)
+    assert nxt_dt is not None
+    assert nxt_dt.astimezone(ny).date() == date(2026, 8, 19)
 
 
 def test_fleet_quality_rates() -> None:
