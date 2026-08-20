@@ -37,14 +37,13 @@
 <section class="metrics" aria-label="Fleet metrics">
   <article class="metric metric-active">
     <div class="metric-head">
-      <h3>Active Jobs</h3>
+      <h3>Active Sources</h3>
       <div class="metric-ico">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
       </div>
     </div>
     <div class="metric-value"><span>{{ metrics.active }}</span> <small>Active</small></div>
-    <div class="metric-sub">{{ metrics.active_pct }}% of total</div>
-    <div class="metric-sub">{{ metrics.total }} Total across {{ metrics.client_count }} client{% if metrics.client_count != 1 %}s{% endif %}</div>
+    <div class="metric-sub">{{ metrics.active_pct_label }}% of {{ metrics.total }} source{% if metrics.total != 1 %}s{% endif %}</div>
   </article>
 
   <article class="metric">
@@ -60,22 +59,30 @@
 
   <article class="metric">
     <div class="metric-head">
-      <h3>Items Scraped Today</h3>
+      <h3>Items Processed Today</h3>
       <div class="metric-ico">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
       </div>
     </div>
     <div class="metric-value">{{ metrics.scraped_today_fmt }}</div>
+    {% if metrics.scraped_today %}
     {% if metrics.urls_delta_pct is not none %}
     <div class="delta">{% if metrics.urls_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.urls_delta_pct|abs }}% vs yesterday</div>
+    {% endif %}
+    {% if metrics.last_updated_ago %}
+    <div class="metric-sub">Last updated {{ metrics.last_updated_ago }}</div>
+    {% endif %}
     {% else %}
-    <div class="metric-sub">vs yesterday —</div>
+    <div class="metric-sub">No items scraped yet</div>
+    {% if metrics.scraped_yesterday %}
+    <div class="metric-sub">Last run: {{ metrics.scraped_yesterday_fmt }} yesterday</div>
+    {% endif %}
     {% endif %}
   </article>
 
   <article class="metric">
     <div class="metric-head">
-      <h3>Lifetime Scraped</h3>
+      <h3>Lifetime Total</h3>
       <div class="metric-ico">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
       </div>
@@ -102,7 +109,7 @@
 <section class="mid">
   <article class="card">
     <div class="card-head">
-      <h2>Jobs Overview</h2>
+      <h2>Items Processed</h2>
       <div class="selects">
         <select class="chip" id="jobsMonth" aria-label="Month"></select>
         <select class="chip" id="jobsYear" aria-label="Year"></select>
@@ -128,7 +135,13 @@
     </div>
     <div class="period-stats" id="periodStats" data-mode="{{ series.period.mode }}">
       {% if series.period.mode == 'current' %}
-      <div><label>Today</label><strong id="statToday">{{ series.period.today_fmt }}</strong></div>
+      <div>
+        <label>Today</label>
+        <strong id="statToday">{{ series.period.today_fmt }}</strong>
+        {% if series.period.today == 0 %}
+        <span class="period-note">No activity yet</span>
+        {% endif %}
+      </div>
       <div><label>This Week</label><strong id="statWeek">{{ series.period.week_fmt }}</strong></div>
       <div><label>This Month</label><strong id="statMonth">{{ series.period.month_fmt }}</strong></div>
       <div><label>This Year</label><strong id="statYear">{{ series.period.year_fmt }}</strong></div>
@@ -142,7 +155,6 @@
     <div class="card-head"><h2>Job Center</h2></div>
     <div class="tabs" id="jobTabs">
       <button class="tab active" type="button" data-filter="completed">Completed Today <span class="count">({{ job_center.counts.completed }})</span></button>
-      <button class="tab" type="button" data-filter="running">Running <span class="count">({{ job_center.counts.running }})</span></button>
       <button class="tab" type="button" data-filter="scheduled">Scheduled <span class="count">({{ job_center.counts.scheduled }})</span></button>
       <button class="tab" type="button" data-filter="attention">Needs Attention <span class="count">({{ job_center.counts.attention }})</span></button>
     </div>
@@ -153,7 +165,7 @@
             <tr>
               <th>Job Name</th>
               <th>Status</th>
-              <th>Progress / Info</th>
+              <th id="jobInfoCol">Items Processed</th>
               <th>Last Update</th>
             </tr>
           </thead>
@@ -167,7 +179,7 @@
 
   <article class="card top-card">
     <div class="card-head">
-      <h2>Top Performing Jobs</h2>
+      <h2>Top Performing Sources</h2>
       <select class="chip" id="topSort" aria-label="Sort">
         <option value="count">By Job Count</option>
         <option value="success">By Success %</option>

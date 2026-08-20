@@ -48,14 +48,13 @@
 <section class="metrics metrics-sources" aria-label="Source metrics">
   <article class="metric metric-active">
     <div class="metric-head">
-      <h3>Active Jobs</h3>
+      <h3>Active Sources</h3>
       <div class="metric-ico">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
       </div>
     </div>
     <div class="metric-value"><span>{{ metrics.active }}</span> <small>Active</small></div>
-    <div class="metric-sub">{{ metrics.active_pct }}% of total</div>
-    <div class="metric-sub">{{ metrics.total }} Total across {{ metrics.client_count }} client{% if metrics.client_count != 1 %}s{% endif %}</div>
+    <div class="metric-sub">{{ metrics.active_pct_label }}% of {{ metrics.total }} source{% if metrics.total != 1 %}s{% endif %}</div>
   </article>
 
   <article class="metric">

@@ -360,6 +360,38 @@ def display_schedule_for(
     return {"tz": ZoneInfo(tz_name), "tz_name": tz_name, "days": days, "local_time": local_time}
 
 
+def next_run_display_label(
+    client_name: str | None,
+    schedule_time: time | None,
+    *,
+    now: datetime | None = None,
+    last_completed: datetime | None = None,
+) -> str:
+    """Sources / Job Center Next Run: client-local clock, or — if unmapped.
+
+    If last_completed already falls on the candidate's local calendar day, skip
+    that slot so Next Run is never earlier than Last Completed on the same day.
+    """
+    mapped = display_schedule_for(client_name, schedule_time)
+    if mapped is None:
+        return "—"
+    now = now or datetime.now(timezone.utc)
+    zone = mapped["tz"]
+    cursor = now
+    if last_completed is not None:
+        lc = last_completed
+        if lc.tzinfo is None:
+            lc = lc.replace(tzinfo=timezone.utc)
+        candidate = next_schedule_at(
+            mapped["days"], mapped["local_time"], now=now, tz=zone
+        )
+        if candidate is not None and lc.astimezone(zone).date() >= candidate.astimezone(zone).date():
+            cursor = candidate
+    return next_schedule_label(
+        mapped["days"], mapped["local_time"], now=cursor, tz=zone
+    )
+
+
 def display_tz_for(client_name: str | None) -> ZoneInfo | None:
     """IANA zone for Sources LAST COMPLETED, or None if unknown."""
     client = normalize_client_name(client_name)
@@ -658,12 +690,15 @@ def dashboard_metrics(session: Session, *, client_name: str | None = None) -> di
         "active": active,
         "inactive": inactive,
         "active_pct": active_pct,
+        "active_pct_label": _fmt_pct(active_pct),
         "client_count": client_count,
         "alerts": alerts,
         "success_rate": success_rate,
         "scraped_today": scraped_today,
         "scraped_today_fmt": f"{scraped_today:,}",
         "scraped_yesterday": scraped_yesterday,
+        "scraped_yesterday_fmt": f"{scraped_yesterday:,}",
+        "last_updated_ago": _ago(last_at) if last_at else None,
         "urls_delta_pct": _pct_delta(scraped_today, scraped_yesterday),
         "scraped_week_delta_pct": _pct_delta(scraped_week, scraped_prev_week),
         "scraped_month_delta_pct": _pct_delta(scraped_month, scraped_prev_month),
@@ -869,7 +904,9 @@ def job_center(
         if bucket == "attention":
             info = (s.qa_notes or "Needs attention").split(",")[0].strip()
         elif bucket == "scheduled":
-            info = next_schedule_label(s.schedule_day, s.schedule_time, now=now)
+            info = next_run_display_label(
+                s.client_name, s.schedule_time, now=now, last_completed=s.last_scraped
+            )
         elif bucket == "completed":
             info = f"{s.scraped_count or 0} items"
 
@@ -888,7 +925,7 @@ def job_center(
     counts["scheduled"] = scheduled_badge_count(scrapers, now=now)
     # Full counts; at most `limit` display rows per status bucket.
     display: list[dict[str, Any]] = []
-    for bucket in ("completed", "running", "scheduled", "attention"):
+    for bucket in ("completed", "scheduled", "attention"):
         display.extend([r for r in rows if r["status"] == bucket][:limit])
     return {"counts": counts, "jobs": display}
 
@@ -1063,15 +1100,12 @@ def sources_rows(
     for s in scrapers:
         status = source_directory_status(s)
         feed = _feed_label(s.feed_url) if s.feed_url else "—"
-        mapped = display_schedule_for(s.client_name, s.schedule_time)
-        if mapped is None:
-            schedule = "—"
-        else:
-            schedule = next_schedule_label(
-                mapped["days"], mapped["local_time"], now=now, tz=mapped["tz"]
-            )
+        last_ok = last_ok_by_scrape.get(s.scrape_id)
+        schedule = next_run_display_label(
+            s.client_name, s.schedule_time, now=now, last_completed=last_ok
+        )
         updated = last_completed_label(
-            last_ok_by_scrape.get(s.scrape_id),
+            last_ok,
             display_tz_for(s.client_name),
         )
 
