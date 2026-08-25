@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<header class="welcome">
+  <div class="welcome-left">
+    <div class="date-text" id="dateLabel">{{ date_label }}</div>
+  </div>
+  <div class="welcome-right">
+    <div class="greeting">
+      <strong>Settings</strong>
+      <span>Account preferences for your workspace</span>
+    </div>
+  </div>
+</header>
+
+<section class="settings-grid" aria-label="Settings">
+  <article class="card settings-card" id="usage">
+    <div class="card-head"><h2>Usage</h2></div>
+    <div class="settings-credits">{{ lifetime_fmt }}</div>
+    <div class="settings-credits-label">credits</div>
+  </article>
+
+  <article class="card settings-card" id="billing">
+    <div class="card-head"><h2>Billing info</h2></div>
+    <p class="muted settings-stub">Not available yet. Invoices and payment methods will show here later.</p>
+  </article>
+
+  <article class="card settings-card" id="appearance">
+    <div class="card-head"><h2>Appearance</h2></div>
+    <p class="muted settings-stub" style="margin-bottom:12px">Choose how the operator dashboard looks.</p>
+    <div class="theme-toggle" role="group" aria-label="Theme">
+      <button type="button" class="theme-btn" data-theme-set="light" id="themeLight">Light</button>
+      <button type="button" class="theme-btn" data-theme-set="dark" id="themeDark">Dark</button>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  function apply(theme) {
+    if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    try { localStorage.setItem("tc-theme", theme); } catch (e) {}
+    var light = document.getElementById("themeLight");
+    var dark = document.getElementById("themeDark");
+    if (light) light.classList.toggle("active", theme !== "dark");
+    if (dark) dark.classList.toggle("active", theme === "dark");
+  }
+  var current = "light";
+  try { current = localStorage.getItem("tc-theme") || "light"; } catch (e) {}
+  apply(current === "dark" ? "dark" : "light");
+  document.querySelectorAll("[data-theme-set]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      apply(btn.getAttribute("data-theme-set") === "dark" ? "dark" : "light");
+    });
+  });
+})();
+</script>
+{% endblock %}

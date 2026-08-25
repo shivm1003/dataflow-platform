@@ -34,6 +34,23 @@
   </div>
 </header>
 
+<section class="status-line" aria-label="Fleet status">
+  <span class="status-item">
+    <svg class="status-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    Updated {% if metrics.last_updated_ago %}{{ metrics.last_updated_ago }}{% else %}—{% endif %}
+  </span>
+  <span class="status-sep" aria-hidden="true">·</span>
+  <span class="status-item">
+    <svg class="status-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+    Next run {{ metrics.next_run_in_short }}
+  </span>
+  <span class="status-sep" aria-hidden="true">·</span>
+  <span class="status-item">
+    <svg class="status-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><rect x="4" y="7" width="16" height="14" rx="2"/></svg>
+    Last run: {{ metrics.jobs_last_run_fmt }} jobs
+  </span>
+</section>
+
 <section class="metrics" aria-label="Fleet metrics">
   <article class="metric metric-active">
     <div class="metric-head">
@@ -73,7 +90,7 @@
     <div class="metric-sub">Last updated {{ metrics.last_updated_ago }}</div>
     {% endif %}
     {% else %}
-    <div class="metric-sub">No items scraped yet</div>
+    <div class="metric-sub">No items processed yet</div>
     {% if metrics.scraped_yesterday %}
     <div class="metric-sub">Last run: {{ metrics.scraped_yesterday_fmt }} yesterday</div>
     {% endif %}
@@ -186,7 +203,6 @@
       </select>
     </div>
     <div class="top-list" id="topList"></div>
-    <p class="top-updated muted">Last updated {{ quality.last_check_date }}</p>
   </article>
 </section>
 

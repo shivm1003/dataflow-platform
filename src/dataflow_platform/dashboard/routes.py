@@ -83,7 +83,9 @@ def _render(
     **context: object,
 ) -> HTMLResponse:
     path = request.url.path
-    if path.startswith("/dashboard/scrapers") or path.startswith("/sources"):
+    if path.startswith("/settings"):
+        nav = "settings"
+    elif path.startswith("/dashboard/scrapers") or path.startswith("/sources"):
         nav = "scrapers"
     else:
         nav = "dashboard"
@@ -260,6 +262,25 @@ def login_submit(
 def logout(request: Request) -> RedirectResponse:
     clear_session(request)
     return RedirectResponse(url="/login", status_code=303)
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def dashboard_settings(
+    request: Request,
+    session: Session = Depends(get_db),
+) -> Response:
+    user = current_user(request, session)
+    if user is None:
+        return _login_redirect(request)
+    metrics = dashboard_metrics(session)
+    return _render(
+        request,
+        "settings.html",
+        user=user,
+        date_label=_date_label(),
+        lifetime=metrics["lifetime"],
+        lifetime_fmt=metrics["lifetime_fmt"],
+    )
 
 
 @router.get("/", response_class=HTMLResponse)

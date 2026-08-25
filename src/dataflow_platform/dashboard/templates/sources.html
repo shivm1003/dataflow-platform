@@ -92,6 +92,7 @@
     {% if metrics.urls_delta_pct is not none %}
     <div class="delta">{% if metrics.urls_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ metrics.urls_delta_pct|abs }}% vs yesterday</div>
     {% endif %}
+    <div class="metric-sub">{{ metrics.throughput_label }}</div>
   </article>
 
   <article class="metric status-card">
