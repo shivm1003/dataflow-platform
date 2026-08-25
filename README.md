@@ -224,6 +224,21 @@ Then open:
 
 JSON routes under `/scrapers` are unchanged for run reporting.
 
+### Production HTTPS (`dashboard.teamcrawlers.com`)
+
+Bind the operator UI to a subdomain of teamcrawlers.com. Keep `www` on the marketing host; only point `dashboard` at the VPS.
+
+1. **DNS (Wix)** — A record `dashboard` → VPS IP (e.g. `147.93.171.128`). Leave `www` / apex unchanged.
+2. **Firewall** — Allow TCP 80 and 443 (e.g. `sudo ufw allow 80/tcp && sudo ufw allow 443/tcp`).
+3. **Nginx** — Either system Nginx + [`deploy/nginx-dashboard.teamcrawlers.com.conf`](deploy/nginx-dashboard.teamcrawlers.com.conf) + Certbot, or Docker on the VPS (`dataflow-nginx` host network). After DNS propagates, as `teamcrawlers`:
+   ```bash
+   ~/deploy/enable-https-docker.sh
+   ```
+   That issues the Let’s Encrypt cert, reloads Nginx, sets `SESSION_HTTPS_ONLY=1`, and restarts the API.
+4. **App `.env` (production)** — Strong `SECRET_KEY`; `SESSION_MAX_AGE_SECONDS=86400` (24h). Keep `SESSION_HTTPS_ONLY=0` until TLS is live so `http://IP:8000` login still works; the enable script flips it to `1`.
+5. **Optional harden** — After HTTPS works: firewall off public 8000; `API_HOST=127.0.0.1` and restart.
+6. **Smoke** — `https://dashboard.teamcrawlers.com/login` sets a `Secure` cookie (`SameSite=Lax`); after 24h the session expires.
+
 ## Delivery roadmap
 
 ### Phase 0 — Foundation

@@ -91,7 +91,7 @@ def test_next_schedule_and_feed_health() -> None:
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)  # Saturday 12:00 CEST
     label = next_schedule_label("Daily", dtime(11, 30), now=now)
     assert "11:30" in label
-    # Medblast cron is 22:00 CEST Mon-Fri; before that time, next run is still today.
+    # Weekday 22:00 Berlin Mon–Fri; before that clock time, next run is still today.
     monday_evening = datetime(2026, 8, 17, 17, 52, tzinfo=timezone.utc)  # 19:52 CEST
     nxt = next_schedule_at("Mon,Tue,Wed,Thu,Fri", dtime(22, 0), now=monday_evening)
     assert nxt is not None
@@ -122,7 +122,7 @@ def test_sources_display_schedule_map() -> None:
     )
 
     ny = ZoneInfo("America/New_York")
-    mb = display_schedule_for("Medblast", dtime(22, 0))
+    mb = display_schedule_for("Medblast", dtime(23, 0))
     assert mb is not None
     assert mb["days"] == "Mon,Tue,Wed,Thu,Fri"
     assert mb["local_time"] == dtime(17, 0)
@@ -174,13 +174,13 @@ def test_sources_display_schedule_map() -> None:
 
     # Job Center Scheduled uses the same client-local label as Sources Next Run.
     now = datetime(2026, 8, 18, 16, 0, tzinfo=ny)
-    assert next_run_display_label("medblast", dtime(22, 0), now=now) == next_schedule_label(
+    assert next_run_display_label("medblast", dtime(23, 0), now=now) == next_schedule_label(
         mb["days"], mb["local_time"], now=now, tz=ny
     )
-    # Already completed today (Berlin 22:00 ≈ 16:00 NY) → Next Run is tomorrow, not 5:00 PM today.
-    ran_today = datetime(2026, 8, 18, 16, 10, tzinfo=ny)
+    # Already completed today on the local day → Next Run skips to tomorrow's 5:00 PM.
+    ran_today = datetime(2026, 8, 18, 17, 10, tzinfo=ny)
     after_run = next_run_display_label(
-        "medblast", dtime(22, 0), now=now, last_completed=ran_today
+        "medblast", dtime(23, 0), now=now, last_completed=ran_today
     )
     assert "Aug 18" not in after_run
     assert "5:00 PM" in after_run
@@ -392,3 +392,15 @@ def test_apply_run_summary_dual_writes_run_row() -> None:
     assert run.status == RunStatus.succeeded
     assert scraper.is_running is False
     session.commit.assert_called_once()
+
+
+def test_ago_past_day_returns_weekday_date() -> None:
+    from dataflow_platform.services import SCHEDULE_TZ, _ago
+
+    recent = datetime.now(timezone.utc) - timedelta(hours=3)
+    assert _ago(recent) == "3h ago"
+    old = datetime.now(timezone.utc) - timedelta(days=2, hours=1)
+    label = _ago(old)
+    local = old.astimezone(SCHEDULE_TZ)
+    assert label == f"{local.strftime('%a, %b')} {local.day}"
+    assert "ago" not in label

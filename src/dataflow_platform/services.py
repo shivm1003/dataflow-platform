@@ -37,7 +37,7 @@ SCHEDULE_TZ = ZoneInfo("Europe/Berlin")
 
 # Display-only original client schedules. Berlin (hour, minute) is a group key, not a conversion.
 _DISPLAY_SCHEDULES: dict[tuple[str, int, int], tuple[str, str, time]] = {
-    ("medblast", 22, 0): ("America/New_York", "Mon,Tue,Wed,Thu,Fri", time(17, 0)),
+    ("medblast", 23, 0): ("America/New_York", "Mon,Tue,Wed,Thu,Fri", time(17, 0)),
     ("hirediverse", 12, 30): ("America/Toronto", "Mon,Tue,Wed,Thu,Fri", time(8, 0)),
     ("diversifying", 10, 2): ("Europe/London", "Mon,Wed,Fri", time(8, 0)),
     ("diversifying", 11, 0): ("Europe/London", "Mon,Tue,Wed,Thu", time(8, 0)),
@@ -685,6 +685,45 @@ def dashboard_metrics(session: Session, *, client_name: str | None = None) -> di
         throughput = round(items_sum / (runtime_sum / 60), 1) if runtime_sum > 0 else 0
         throughput_label = throughput_label_for_day(run_day, today=today_berlin)
 
+    jobs_last_run = 0
+    if last_at is not None:
+        if last_at.tzinfo is None:
+            last_at = last_at.replace(tzinfo=timezone.utc)
+        run_day = last_at.astimezone(SCHEDULE_TZ).date()
+        day_start, day_end = _tz_day_bounds(run_day, SCHEDULE_TZ)
+        jobs_q = select(func.coalesce(func.sum(ScraperRun.jobs_count), 0)).where(
+            ScraperRun.finished_at >= day_start,
+            ScraperRun.finished_at < day_end,
+            ScraperRun.success.is_(True),
+        )
+        if client_name:
+            jobs_q = jobs_q.join(Scraper, Scraper.scrape_id == ScraperRun.scrape_id).where(
+                Scraper.client_name == client_name
+            )
+        jobs_last_run = int(session.scalar(jobs_q) or 0)
+
+    next_run_at: datetime | None = None
+    for s in scrapers:
+        mapped = display_schedule_for(s.client_name, s.schedule_time)
+        if mapped is None:
+            continue
+        zone = mapped["tz"]
+        cand = next_schedule_at(
+            mapped["days"], mapped["local_time"], now=now, tz=zone
+        )
+        if cand is None:
+            continue
+        if s.last_scraped is not None:
+            lc = s.last_scraped
+            if lc.tzinfo is None:
+                lc = lc.replace(tzinfo=timezone.utc)
+            if lc.astimezone(zone).date() >= cand.astimezone(zone).date():
+                cand = next_schedule_at(
+                    mapped["days"], mapped["local_time"], now=cand, tz=zone
+                )
+        if cand is not None and (next_run_at is None or cand < next_run_at):
+            next_run_at = cand
+
     return {
         "total": total,
         "active": active,
@@ -699,6 +738,12 @@ def dashboard_metrics(session: Session, *, client_name: str | None = None) -> di
         "scraped_yesterday": scraped_yesterday,
         "scraped_yesterday_fmt": f"{scraped_yesterday:,}",
         "last_updated_ago": _ago(last_at) if last_at else None,
+        "next_run_in": (nr := _fmt_until(next_run_at, now=now)),
+        "next_run_in_short": (
+            "due" if nr == "due" else nr.removeprefix("Next ") if nr.startswith("Next ") else nr
+        ),
+        "jobs_last_run": jobs_last_run,
+        "jobs_last_run_fmt": f"{jobs_last_run:,}",
         "urls_delta_pct": _pct_delta(scraped_today, scraped_yesterday),
         "scraped_week_delta_pct": _pct_delta(scraped_week, scraped_prev_week),
         "scraped_month_delta_pct": _pct_delta(scraped_month, scraped_prev_month),
@@ -829,6 +874,7 @@ def _ago(value: datetime | None) -> str:
         return "—"
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
+    local = value.astimezone(SCHEDULE_TZ)
     seconds = int((datetime.now(timezone.utc) - value.astimezone(timezone.utc)).total_seconds())
     if seconds < 60:
         return "Just now"
@@ -836,7 +882,8 @@ def _ago(value: datetime | None) -> str:
         return f"{seconds // 60} min ago"
     if seconds < 86400:
         return f"{seconds // 3600}h ago"
-    return f"{seconds // 86400}d ago"
+    # >= 24h: weekday + date (Berlin), not "2d ago"
+    return f"{local.strftime('%a, %b')} {local.day}"
 
 
 def _has_schedule(scraper: Any) -> bool:

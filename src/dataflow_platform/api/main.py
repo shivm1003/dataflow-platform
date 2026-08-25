@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from dataflow_platform.api.routes import router as api_router
 from dataflow_platform.config import get_settings
@@ -32,6 +33,8 @@ def create_app() -> FastAPI:
         same_site="lax",
         https_only=settings.session_https_only,
     )
+    # Outermost: honor X-Forwarded-* from local Nginx (see deploy/nginx-*.conf).
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["127.0.0.1", "::1"])
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(dashboard_router)
     app.include_router(api_router)
